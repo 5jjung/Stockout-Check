@@ -129,7 +129,13 @@ async function runOnce() {
   if (HEARTBEAT !== 'off' && due && (quiet || chromeStale)) {
     const chromeText = SOURCE !== 'auto' ? ''
       : ` · 사이즈 확인 ${runStats.chromeSized}/${targets.length}개 · 크롬 마지막 수집 ${runStats.chromeAgeMin === null ? '없음' : `${runStats.chromeAgeMin}분 전`}`;
-    const lines = [`• 감시 상품 ${targets.length}개 확인 · 조회 실패 ${failed}개${chromeText}`];
+    const lines = [
+      `• 품절 체크: 감시 상품 ${targets.length}개 · 새 품절/재입고 ${slackLines.length}건 · 조회 실패 ${failed}개`,
+      restockIndex
+        ? `• 재고 ${LOW_STOCK_LIMIT}개 이하 체크: 입고 예정 상품 ${restockIndex.bySize.size}개 · 새 알림 ${lowStockLines.length}건`
+        : `• 재고 ${LOW_STOCK_LIMIT}개 이하 체크: 새 알림 ${lowStockLines.length}건`,
+    ];
+    if (chromeText) lines.push(`• 크롬 수집${chromeText.replace(/^ · /, ': ')}`);
     if (chromeStale) lines.push('• ⚠️ 크롬 수집이 멈췄습니다 → 사이즈 품절·재고 부족은 확인되지 않고, 상품 전체 품절만 확인 중입니다. 사무실 PC 크롬의 무신사 탭을 확인해 주세요.');
     await sendSlack(`${chromeStale ? '⚠️' : '✅'} *품절 체크 ${quiet ? '이상 없음' : '상태'}* (${now})`, lines);
   }
