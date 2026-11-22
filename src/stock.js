@@ -1,13 +1,11 @@
 // 품절 판정 규칙 (시트·브라우저와 무관한 순수 계산만 모아 둔 파일 → 테스트하기 쉬움)
 //
 // 감시 규칙
-//   - 상품등록 D열(감시 ON/OFF) 체크  → 감시 대상. 변동이 생기면 기록 + 슬랙
-//   - 상품등록 D열 체크 해제          → "재입고 일정 없음" 상품. 그래도 조회는 하고,
-//                                       변동은 '(재입고 일정 없음)' 표시로 기록만 함
-//   - 사이즈 칸(F~) 체크 해제         → 그 사이즈만 "재입고 일정 없음"으로 같은 방식 처리
-//   - 사이즈 칸이 빈칸               → 원래 없는 사이즈. 무신사에 생기면 감시 대상으로 봄
-//   - "재입고 일정 없음" 상품/사이즈가 다시 재고가 생기면 슬랙으로 알려줌
-//     (체크박스를 다시 켤지 MD가 판단할 수 있도록)
+//   - 상품등록 D열(감시 ON/OFF) 체크   → 감시 대상
+//   - 상품등록 D열 체크 해제           → 재입고 일정 없음 → 확인하지 않음 (index.js 에서 제외)
+//   - 사이즈 칸(F~) 체크               → 그 사이즈 품절을 감시
+//   - 사이즈 칸 체크 해제              → 재입고 일정 없음 → 그 사이즈는 무시
+//   - 사이즈 칸 빈칸                   → 원래 없는 사이즈. 무신사에 생기면 감시 대상으로 봄
 
 const STATUS_KO = {
   SALE: '판매중',
@@ -158,11 +156,9 @@ function firstEvents(cur, product, order) {
   return [{ type: '최초 확인', watched: sold.some((s) => isSizeWatched(product, s)), text: `현재 품절: ${label}`, first: true }];
 }
 
-// 슬랙으로 알릴 이벤트인가?
-//   감시 대상 변동 → 알림 / 재입고 일정 없던 상품·사이즈가 다시 살아남 → 알림 / 최초 확인 → 기록만
+// 슬랙으로 알릴 이벤트인가? (감시 대상 변동 → 알림 / 최초 확인 → 기록만)
 function shouldNotify(ev) {
-  if (ev.first) return false;
-  return ev.watched || ev.type === '재입고' || ev.type === '판매 재개';
+  return !ev.first && ev.watched;
 }
 
 // 상품 하나 평가 → 시즌 탭에 쓸 한 줄 + 변동 목록
@@ -183,9 +179,12 @@ function evaluate({ product, prevRow, snap, now }) {
     return { row, events: [] };
   }
 
-  const prev = parsePrevRow(prevRow);
+  // 체크 해제된 사이즈(재입고 일정 없음)는 아예 보지 않음
+  const onlyWatched = (obj) => Object.fromEntries(Object.entries(obj || {}).filter(([s]) => isSizeWatched(product, s)));
+  const parsed = parsePrevRow(prevRow);
+  const prev = parsed && { ...parsed, sizes: onlyWatched(parsed.sizes) };
   // 옵션 재고를 못 받았으면 직전 사이즈 정보 유지 (사이즈 변동 판정은 건너뜀)
-  const sizes = snap.sizesKnown ? snap.sizes : (prev?.sizes || {});
+  const sizes = onlyWatched(snap.sizesKnown ? snap.sizes : prev?.sizes);
   const cur = { status: snap.status, sizes };
   const events = prev ? diff(prev, cur, product, snap.sizesKnown, order) : firstEvents(cur, product, order);
   for (const ev of events) {

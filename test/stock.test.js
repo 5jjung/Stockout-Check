@@ -28,20 +28,20 @@ test('무신사 원본 → 판정 (옵션별 재고)', () => {
   assert.equal(toSnapshot(soldOut, ORDER).status, 'SOLDOUT');
 });
 
-test('처음 보는 상품: 기록만 하고 슬랙은 안 보냄', () => {
+test('처음 보는 상품: 체크 해제 사이즈는 무시, 기록만 하고 슬랙 X', () => {
   const { row, events } = evaluate({ product: product(true, { S: false, M: true, L: true }), prevRow: null, snap: snap({ S: false, M: true, L: true }), now: NOW });
-  assert.equal(row[3], '⏸ 품절 (재입고 일정 없음)');
-  assert.equal(row[4], 'S(일정없음)');
-  assert.equal(events[0].type, '최초 확인');
-  assert.equal(events[0].notify, false);
+  assert.equal(row[3], '✅ 판매중');
+  assert.equal(row[4], '');
+  assert.equal(row[5], 'M, L');
+  assert.equal(events.length, 0);
 });
 
-test('감시 사이즈 품절 발생 → 기록 + 슬랙', () => {
+test('판매중 상품의 체크된 사이즈 품절 → 기록 + 슬랙', () => {
   const p = product(true, { S: false, M: true, L: true });
-  const prevRow = ['6884871', 'x', '감시 ON', '⏸ 품절 (재입고 일정 없음)', 'S(일정없음)', 'M, L', '', '', ''];
+  const prevRow = ['6884871', 'x', '감시 ON', '✅ 판매중', '', 'M, L', '', '', ''];
   const { row, events } = evaluate({ product: p, prevRow, snap: snap({ S: false, M: false, L: true }), now: NOW });
   assert.equal(row[3], '❌ 사이즈 품절');
-  assert.equal(row[4], 'S(일정없음), M');
+  assert.equal(row[4], 'M');
   assert.equal(row[6], NOW);
   assert.equal(events.length, 1);
   assert.equal(events[0].label, '품절 발생');
@@ -49,27 +49,24 @@ test('감시 사이즈 품절 발생 → 기록 + 슬랙', () => {
   assert.equal(events[0].notify, true);
 });
 
-test('재입고 일정 없는 사이즈: 품절은 기록만, 재입고되면 슬랙', () => {
+test('체크 해제 사이즈는 품절·재입고 모두 무시', () => {
   const p = product(true, { S: false, M: true });
-  const prevRow = ['6884871', 'x', '감시 ON', '✅ 판매중', '', 'S, M', '', '', ''];
+  const prevRow = ['6884871', 'x', '감시 ON', '✅ 판매중', '', 'M', '', '', ''];
   let r = evaluate({ product: p, prevRow, snap: snap({ S: false, M: true }), now: NOW });
-  assert.equal(r.events[0].label, '품절 발생 (재입고 일정 없음)');
-  assert.equal(r.events[0].notify, false);
-  assert.equal(r.row[6], ''); // 감시 사이즈 문제 없음 → 문제 발생 시각 비움
-
+  assert.equal(r.events.length, 0);
   r = evaluate({ product: p, prevRow: r.row, snap: snap({ S: true, M: true }), now: NOW });
-  assert.equal(r.events[0].label, '재입고 (재입고 일정 없던 항목)');
-  assert.equal(r.events[0].notify, true);
+  assert.equal(r.events.length, 0);
+  assert.equal(r.row[5], 'M');
 });
 
-test('상품 전체 감시 OFF(재입고 일정 없음): 전체 품절은 기록만', () => {
-  const p = product(false, { S: true, M: true });
-  const prevRow = ['6884871', 'x', '감시 OFF (재입고 일정 없음)', '✅ 판매중', '', 'S, M', '', '', ''];
-  const { row, events } = evaluate({ product: p, prevRow, snap: snap({ S: false, M: false }, 'SOLDOUT'), now: NOW });
-  assert.equal(row[2], '감시 OFF (재입고 일정 없음)');
-  assert.equal(row[3], '🚫 전체 품절');
-  assert.equal(events[0].label, '전체 품절 (재입고 일정 없음)');
-  assert.equal(events[0].notify, false);
+test('체크된 사이즈 재입고 → 슬랙', () => {
+  const p = product(true, { M: true, L: true });
+  const prevRow = ['6884871', 'x', '감시 ON', '❌ 사이즈 품절', 'M', 'L', '2026-11-21 09:00', '', ''];
+  const { row, events } = evaluate({ product: p, prevRow, snap: snap({ M: true, L: true }), now: NOW });
+  assert.equal(row[3], '✅ 판매중');
+  assert.equal(row[6], '');
+  assert.equal(events[0].label, '재입고');
+  assert.equal(events[0].notify, true);
 });
 
 test('조회 실패: 기존 값 유지, 변동 없음', () => {
@@ -81,7 +78,7 @@ test('조회 실패: 기존 값 유지, 변동 없음', () => {
 });
 
 test('직전 줄 해석', () => {
-  assert.deepEqual(parsePrevRow(['1', 'x', '', '❌ 사이즈 품절', 'S(일정없음), M', 'L']), { status: 'SALE', sizes: { S: false, M: false, L: true } });
+  assert.deepEqual(parsePrevRow(['1', 'x', '', '❌ 사이즈 품절', 'S, M', 'L']), { status: 'SALE', sizes: { S: false, M: false, L: true } });
   assert.equal(parsePrevRow(['1', 'x', '', '❓ 조회 실패']), null);
 });
 

@@ -19,18 +19,20 @@ async function runOnce() {
 
   // 시즌설정에서 ON 인 시즌의 상품만 (같은 상품번호가 두 번 있으면 위쪽 줄 기준)
   const seen = new Set();
-  const targets = products.filter((p) => {
+  const seasonProducts = products.filter((p) => {
     if (seasons.get(p.season) !== true) return false;
     const key = `${p.season}|${p.goodsNo}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
-  const onCount = targets.filter((p) => p.watch).length;
+  // 감시 OFF(재입고 일정 없음) 상품은 확인하지 않음
+  const targets = seasonProducts.filter((p) => p.watch);
+  const offProducts = seasonProducts.filter((p) => !p.watch);
   console.log(`[시작] ${stamp()} · 조회 방식: ${SOURCE === 'product' ? '상세 페이지(사이즈별)' : '브랜드 목록(상품 단위)'} · 시즌 ON: ${[...seasons].filter(([, on]) => on).map(([s]) => s).join(', ') || '없음'}`
-    + ` · 확인할 상품 ${targets.length}개 (감시 ON ${onCount} / 재입고 일정 없음 ${targets.length - onCount})`
+    + ` · 확인할 상품 ${targets.length}개 (감시 OFF ${offProducts.length}개는 제외)`
     + (DRY_RUN ? ' [DRY-RUN: 시트·슬랙에 쓰지 않음]' : ''));
-  if (!targets.length) return;
+  if (!seasonProducts.length) return;
 
   // 1) 무신사 조회
   const raws = SOURCE === 'product' ? await fetchByProduct(targets) : await fetchByListing(targets);
@@ -42,7 +44,7 @@ async function runOnce() {
   const slackLines = [];
   let failed = 0;
 
-  for (const season of [...new Set(targets.map((p) => p.season))]) {
+  for (const season of [...new Set(seasonProducts.map((p) => p.season))]) {
     if (!DRY_RUN) await sheets.ensureSeasonTab(season);
     const tab = await sheets.readSeasonTab(season).catch(() => ({ rows: new Map(), lastRow: 1 }));
     const updates = [];
@@ -61,11 +63,15 @@ async function runOnce() {
         logRows.push([now, ev.label, name, ev.text, url]);
         historyRows.push([now, season, ev.label, product.goodsNo, name, ev.text, url]);
         console.log(`   [${ev.label}] ${product.goodsNo} ${name} — ${ev.text}`);
-        if (ev.notify) {
-          const hint = !ev.watched ? ' _(재입고 일정 없음으로 체크 해제된 상품/사이즈 → 상품등록 체크박스 확인)_' : '';
-          slackLines.push(`• <${url}|${esc(name)}> — *${ev.label}*: ${esc(ev.text)}${hint}`);
-        }
+        if (ev.notify) slackLines.push(`• <${url}|${esc(name)}> — *${ev.label}*: ${esc(ev.text)}`);
       }
+    }
+    // 감시 OFF 상품: 시즌 탭에 이미 줄이 있으면 '감시 안 함'으로만 바꿔 둠 (새 줄은 만들지 않음)
+    for (const product of offProducts.filter((p) => p.season === season)) {
+      const prev = tab.rows.get(product.goodsNo);
+      if (!prev) continue;
+      const v = Array.from({ length: 9 }, (_, i) => prev.values[i] ?? '');
+      updates.push({ sheetRow: prev.sheetRow, values: [product.goodsNo, v[1] || product.name, '감시 OFF', '⏸ 감시 안 함 (재입고 일정 없음)', '', '', '', v[7], v[8]] });
     }
     if (!DRY_RUN) await sheets.writeSeasonRows(season, updates);
     console.log(`   '${season}' 탭 ${updates.length}개 상품 현황 갱신${DRY_RUN ? ' (DRY-RUN: 실제로는 안 씀)' : ''}`);
@@ -80,7 +86,7 @@ async function runOnce() {
 
   const sec = Math.round((Date.now() - startedAt) / 1000);
   console.log(`[완료] 변동 ${logRows.length}건 기록 ('${TABS.log}', '${TABS.history}') · 슬랙 ${slackLines.length}건 · 조회 실패 ${failed}건 · ${sec}초`);
-  if (failed === targets.length) throw new Error('모든 상품 조회에 실패했습니다. 무신사 차단 여부를 확인해 주세요 (README "조회가 전부 실패할 때").');
+  if (targets.length && failed === targets.length) throw new Error('모든 상품 조회에 실패했습니다. 무신사 차단 여부를 확인해 주세요 (README "조회가 전부 실패할 때").');
 }
 
 // 상세 페이지 방식: 상품마다 열어서 사이즈별 재고까지 확인
@@ -98,7 +104,7 @@ async function fetchByProduct(targets) {
 // 목록 방식: 시즌별 브랜드 목록 페이지에서 상품 단위 품절 확인
 async function fetchByListing(targets) {
   const raws = new Map();
-  for (const season of [...new Set(targets.map((p) => p.season))]) {
+  for (const season of [...new Set(seasonProducts.map((p) => p.season))]) {
     const goodsNos = [...new Set(targets.filter((p) => p.season === season).map((p) => p.goodsNo))];
     let items = new Map();
     try {
