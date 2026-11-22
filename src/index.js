@@ -14,6 +14,7 @@ const { createSheets } = require('./sheets');
 const { fetchProducts, productUrl } = require('./musinsa');
 const { toSnapshot, evaluate } = require('./stock');
 const { sendSlack, esc } = require('./slack');
+const { sendKakao } = require('./kakao');
 const { stamp, sleep } = require('./time');
 
 async function runOnce() {
@@ -75,6 +76,7 @@ async function runOnce() {
   const historyRows = [];
   const slackLines = [];
   const lowStockLines = [];
+  const kakaoLines = []; // 문제만 (새 품절·판매 중지·삭제·재고 부족) — 재입고·판매 재개는 슬랙만
   let failed = 0;
 
   for (const season of [...new Set(seasonProducts.map((p) => p.season))]) {
@@ -98,6 +100,7 @@ async function runOnce() {
         // 공개 저장소의 실행 기록은 누구나 볼 수 있으므로 입고 일정(내부 정보)은 기록에 남기지 않음
         console.log(`   [${ev.label}] ${product.goodsNo} ${name} — ${ev.lowStock ? ev.text.replace(/ \([^)]*\)/g, '') : ev.text}`);
         if (ev.notify) (ev.lowStock ? lowStockLines : slackLines).push(`• <${url}|${esc(name)}> — *${ev.label}*: ${esc(ev.text)}`);
+        if (ev.notify && !['재입고', '판매 재개'].includes(ev.type)) kakaoLines.push(`• ${name} — ${ev.label}: ${ev.text}`);
       }
     }
     // 감시 OFF 상품: 시즌 탭에 이미 줄이 있으면 '감시 안 함'으로만 바꿔 둠 (새 줄은 만들지 않음)
@@ -120,6 +123,14 @@ async function runOnce() {
   await sendSlack(LOW_STOCK_SCOPE === 'restock'
     ? `📦 *입고 예정 상품 재고 ${LOW_STOCK_LIMIT}개 이하* (${lowStockLines.length}건)`
     : `📦 *재고 ${LOW_STOCK_LIMIT}개 이하 — 재입고 일정 확인 부탁드립니다* (${lowStockLines.length}건)`, lowStockLines);
+
+  // 카카오톡: 문제 생겼을 때만
+  if (kakaoLines.length) await sendKakao(`🚨 품절 체크 (${now.slice(5)})\n${kakaoLines.join('\n')}`);
+  // 크롬 수집이 막 멈췄을 때 한 번 (기준 시간을 넘은 첫 실행 + 3시간 안 중복 방지)
+  if (SOURCE === 'auto' && runStats.chromeAgeMin !== null
+    && runStats.chromeAgeMin > BROWSER_MAX_AGE_MIN && runStats.chromeAgeMin <= BROWSER_MAX_AGE_MIN + 15) {
+    await sendKakao(`⚠️ 크롬 수집이 ${runStats.chromeAgeMin}분째 멈췄습니다. 사이즈 품절·재고 부족 확인이 안 되고 있어요. 사무실 PC 크롬의 무신사 탭을 확인해 주세요.`, { key: 'chrome', minutes: 180 });
+  }
 
   // 상태 알림: 변동이 없을 때 "이상 없음" (기본 1시간에 한 번) + 크롬 수집이 멈췄으면 경고
   const kstMinute = Number(new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Seoul', minute: 'numeric' }).format(new Date()));
@@ -229,4 +240,5 @@ main().catch(async (e) => {
   process.exitCode = 1;
   // 실행 자체가 실패하면 바로 슬랙으로 알림
   await sendSlack(`❌ *품절 체크 실행 실패* (${stamp()})`, [`• ${e.message.split('\n')[0]}`]).catch(() => {});
+  await sendKakao(`❌ 품절 체크 실행 실패 (${stamp().slice(5)})\n${e.message.split('\n')[0].slice(0, 150)}`, { key: 'fail', minutes: 60 });
 });
