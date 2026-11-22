@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         코드그라피 사이즈 품절 수집
 // @namespace    stockout-check
-// @version      1.1.0
+// @version      1.2.0
 // @description  무신사 탭이 열려 있는 동안 10분마다 감시 상품의 사이즈별 재고를 확인해 구글 시트에 적습니다.
 // @match        https://www.musinsa.com/*
 // @grant        GM_xmlhttpRequest
@@ -96,6 +96,102 @@
     return null;
   }
 
+  const isOption = (x) => Array.isArray(x.optionValues);
+  const isInventory = (x) => 'productVariantId' in x && 'outOfStock' in x;
+  const keysOf = (j) => (j && typeof j === 'object' ? JSON.stringify(j).slice(0, 200) : '');
+
+  // 옵션 주소 후보 ({g}=상품번호, {t}=판매상태). 실제로 되는 주소를 찾으면 기억해 두고 계속 씀
+  const OPTION_URLS = [
+    `${API}/{g}/options?goodsSaleType={t}`,
+    `${API}/{g}/v2/options?goodsSaleType={t}`,
+    `${API}/{g}/options`,
+    `${API}/{g}/v2/options`,
+  ];
+  const fill = (tpl, g, t) => tpl.split('{g}').join(g).split('{t}').join(encodeURIComponent(t));
+
+  // 상품 페이지 HTML 안의 데이터(JSON)에서 찾기
+  async function fromPageHtml(goodsNo, test) {
+    try {
+      const html = await (await fetch(`/products/${goodsNo}`, { credentials: 'include' })).text();
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      for (const sc of doc.querySelectorAll('script')) {
+        const txt = sc.textContent.trim();
+        if (!txt.startsWith('{') && !txt.startsWith('[')) continue;
+        try { const f = find(JSON.parse(txt), test); if (f && f.length) return f; } catch { /* 무시 */ }
+      }
+    } catch { /* 무시 */ }
+    return null;
+  }
+
+  // 실제 상품 페이지를 보이지 않는 작은 창에 열어, 페이지가 부른 데이터 주소 목록 얻기
+  function discoverUrls(goodsNo) {
+    return new Promise((resolve) => {
+      const f = document.createElement('iframe');
+      f.style.cssText = 'position:fixed;left:-20px;bottom:0;width:10px;height:10px;opacity:0;border:0';
+      f.src = `/products/${goodsNo}`;
+      let done = false;
+      const finish = () => {
+        if (done) return; done = true;
+        let urls = [];
+        try {
+          urls = f.contentWindow.performance.getEntriesByType('resource').map((e) => e.name)
+            .filter((u) => /musinsa\.com/.test(u) && !/\.(js|css|png|jpe?g|gif|webp|svg|woff2?|ico)(\?|$)/i.test(u));
+        } catch (e) { urls = [`ERR ${e.message}`]; }
+        f.remove();
+        resolve({ goodsNo, urls: [...new Set(urls)] });
+      };
+      f.onload = () => setTimeout(finish, 8000);
+      setTimeout(finish, 25000);
+      document.body.appendChild(f);
+    });
+  }
+
+  let discovering = null; // 한 번 실행에 한 번만 찾음
+  let optionFailures = 0;  // 이번 실행에서 옵션 찾기 실패 횟수 (3번 넘으면 나머지는 시도하지 않음 — 서버 배려)
+  async function getOptions(goodsNo, saleType, debug) {
+    const learned = GM_getValue('optionUrlTpl', null);
+    if (optionFailures >= 3) { debug.tried.push('건너뜀 (앞 상품들에서 옵션 주소를 못 찾음)'); return null; }
+    const result = await findOptionsFor(goodsNo, saleType, debug, learned);
+    if (!result) optionFailures++;
+    return result;
+  }
+  async function findOptionsFor(goodsNo, saleType, debug, learned) {
+    const tpls = [...new Set([learned, ...OPTION_URLS].filter(Boolean))];
+    for (const tpl of tpls) {
+      const r = await get(fill(tpl, goodsNo, saleType));
+      const opts = r.json && find(r.json, isOption);
+      if (opts && opts.length) { if (tpl !== learned) GM_setValue('optionUrlTpl', tpl); return { opts, json: r.json }; }
+      debug.tried.push(`${r.status} ${fill(tpl, goodsNo, saleType)} ${keysOf(r.json)}`);
+    }
+    const inHtml = await fromPageHtml(goodsNo, isOption);
+    if (inHtml) return { opts: inHtml, json: null };
+    // 마지막 방법: 실제 페이지가 부르는 주소에서 찾기
+    if (!discovering) discovering = discoverUrls(goodsNo);
+    const disc = await discovering;
+    debug.discovered = disc.urls;
+    // 다른 탭 작업이 그새 주소를 찾았으면 그걸로
+    const nowLearned = GM_getValue('optionUrlTpl', null);
+    if (nowLearned && nowLearned !== learned) {
+      const r = await get(fill(nowLearned, goodsNo, saleType));
+      const opts = r.json && find(r.json, isOption);
+      if (opts && opts.length) return { opts, json: r.json };
+    }
+    // 찾은 상품번호가 들어간 데이터 주소를 이 상품번호로 바꿔 전부 시험 (상품 페이지·상세 주소 제외)
+    const cands = disc.urls
+      .filter((x) => x.includes(disc.goodsNo) && !/\/products\//.test(x) && x !== `${API}/${disc.goodsNo}`)
+      .map((x) => x.split(disc.goodsNo).join(goodsNo));
+    for (const u of cands.slice(0, 15)) {
+      const r = await get(u);
+      const opts = r.json && find(r.json, isOption);
+      debug.tried.push(`${r.status} ${u} ${keysOf(r.json)}`);
+      if (opts && opts.length) {
+        GM_setValue('optionUrlTpl', u.split(goodsNo).join('{g}'));
+        return { opts, json: r.json };
+      }
+    }
+    return null;
+  }
+
   // 상품 하나 확인 → 시트에 적을 재고 데이터
   async function collect(goodsNo) {
     const d = await get(`${API}/${goodsNo}`);
@@ -103,27 +199,34 @@
     if (d.status !== 200) return { error: `상세 HTTP ${d.status}` };
     const detail = findDetail(d.json, goodsNo);
     if (!detail) return { error: '상세 정보 없음' };
+    const base = { detail: { goodsSaleType: detail.goodsSaleType, isOutOfStock: detail.isOutOfStock === true, goodsNm: detail.goodsNm || '' } };
+    if (detail.goodsSaleType !== 'SALE' || detail.isOutOfStock === true) return { ...base, options: [], inventory: [] }; // 전체 품절·판매중지는 옵션 볼 필요 없음
 
-    const o = await get(`${API}/${goodsNo}/v2/options?goodsSaleType=${encodeURIComponent(detail.goodsSaleType)}`);
-    const options = (o.json && find(o.json, (x) => Array.isArray(x.optionValues))) || [];
+    const debug = { tried: [] };
+    const found = await getOptions(goodsNo, detail.goodsSaleType, debug);
+    if (!found) return { ...base, options: [], inventory: [], error: '사이즈 옵션을 받지 못함', debug };
+    const options = found.opts;
 
-    let inventory = [];
-    const valueNos = [...new Set(options.flatMap((x) => x.optionValues.map((v) => v.no)).filter((v) => v != null))];
-    if (options.length && valueNos.length) {
+    // 재고: 옵션 응답 안에 같이 있으면 그걸, 없으면 재고 주소에 따로 요청
+    let inventory = (found.json && find(found.json, isInventory)) || [];
+    const optStock = (x) => (typeof x.outOfStock === 'boolean' ? x.outOfStock : typeof x.isSoldOut === 'boolean' ? x.isSoldOut : undefined);
+    if (!inventory.length && !options.every((x) => typeof optStock(x) === 'boolean')) {
+      const valueNos = [...new Set(options.flatMap((x) => x.optionValues.map((v) => v.no)).filter((v) => v != null))];
       const inv = await get(`${API}/${goodsNo}/options/v2/prioritized-inventories`, { optionValueNos: valueNos });
-      inventory = (inv.json && find(inv.json, (x) => 'productVariantId' in x && 'outOfStock' in x)) || [];
+      inventory = (inv.json && find(inv.json, isInventory)) || [];
+      if (!inventory.length) debug.tried.push(`${inv.status} 재고 POST prioritized-inventories ${keysOf(inv.json)}`);
     }
     const stock = {
-      detail: { goodsSaleType: detail.goodsSaleType, isOutOfStock: detail.isOutOfStock === true, goodsNm: detail.goodsNm || '' },
+      ...base,
       options: options.map((x) => ({
-        no: x.no, managedCode: x.managedCode, activated: x.activated, isDeleted: x.isDeleted,
-        outOfStock: typeof x.outOfStock === 'boolean' ? x.outOfStock : undefined,
+        no: x.no, managedCode: x.managedCode, activated: x.activated, isDeleted: x.isDeleted, outOfStock: optStock(x),
         optionValues: x.optionValues.map((v) => ({ no: v.no, name: v.name })),
       })),
       inventory: inventory.map((x) => ({ productVariantId: x.productVariantId, outOfStock: x.outOfStock })),
     };
-    if (options.length && !inventory.length && !stock.options.every((x) => typeof x.outOfStock === 'boolean')) {
+    if (!stock.inventory.length && !stock.options.every((x) => typeof x.outOfStock === 'boolean')) {
       stock.error = '옵션별 재고를 받지 못함';
+      stock.debug = debug;
     }
     return stock;
   }
@@ -134,6 +237,8 @@
     if (!cfg().url || !cfg().token) { show('설정 필요: Tampermonkey 메뉴 → 설정 입력'); return; }
     if (!isLeader(force)) { show('다른 무신사 탭에서 수집 중 · 이 탭은 대기'); return; }
     running = true;
+    discovering = null;
+    optionFailures = 0;
     const started = new Date();
     try {
       show('상품 목록 받는 중…');

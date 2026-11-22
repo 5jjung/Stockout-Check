@@ -140,6 +140,13 @@ async function fetchAuto(targets, sheets) {
   const latest = Math.max(0, ...[...browserRows.values()].map((r) => Date.parse(r[1])).filter(Number.isFinite));
   console.log(`   [크롬 수집] 사이즈별 확인 ${fromChrome}개 / 목록으로만 확인 ${targets.length - fromChrome}개`
     + ` · 마지막 크롬 수집 ${latest ? `${Math.round((Date.now() - latest) / 60000)}분 전` : '없음'}`);
+  // 크롬이 사이즈 옵션을 못 받았을 때 남긴 진단 정보 (원인 파악용)
+  for (const r of browserRows.values()) {
+    try {
+      const d = JSON.parse(r[3]).debug;
+      if (d) { console.log(`   [크롬 진단] ${r[0]} ${r[4] || ''}\n${JSON.stringify(d, null, 1).slice(0, 4000)}`); break; }
+    } catch { /* 무시 */ }
+  }
   if (fromChrome < targets.length) console.log('   (크롬 수집이 없거나 오래된 상품은 상품 전체 품절만 확인합니다. 사무실 PC 크롬에 무신사 탭이 열려 있는지 확인해 주세요)');
   return raws;
 }
