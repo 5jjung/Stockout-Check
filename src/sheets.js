@@ -128,7 +128,13 @@ function createSheets() {
     return new Map(rows.filter((r) => /^\d{5,}$/.test(String(r[0] ?? '').trim())).map((r) => [String(r[0]).trim(), r]));
   }
 
+  // 입고일정 탭 전체 (없으면 null)
+  async function readRestockTab() {
+    try { return await read(`${q(TABS.restock)}!A1:Z`); } catch { return null; }
+  }
+
   return {
+    readRestockTab,
     readBrowserTab,
     readSeasons, readRegistry, ensureSeasonTab, readSeasonTab, writeSeasonRows,
     appendLog: (rows) => appendRows(TABS.log, 'E', rows),         // 시각, 종류, 상품명, 내용, URL

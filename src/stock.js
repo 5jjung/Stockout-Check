@@ -172,7 +172,8 @@ function shouldNotify(ev) {
 //   product : 상품등록 한 줄 { goodsNo, name, watch, sizeChecks, sizeOrder }
 //   prevRow : 시즌 탭의 기존 줄 (없으면 null)
 //   snap    : toSnapshot() 결과
-function evaluate({ product, prevRow, snap, now, lowLimit = 5 }) {
+function evaluate({ product, prevRow, snap, now, lowLimit = 5, restock = null }) {
+  // restock: null = 모든 사이즈 재고 부족 체크 / Map(사이즈 → '입고 12/3 · 예약발송 12/11') = 입고 일정 있는 사이즈만
   const order = product.sizeOrder || [];
   const watchText = product.watch ? '감시 ON' : '감시 OFF (재입고 일정 없음)';
   const prevPadded = Array.from({ length: 10 }, (_, i) => prevRow?.[i] ?? '');
@@ -208,14 +209,17 @@ function evaluate({ product, prevRow, snap, now, lowLimit = 5 }) {
   //   새로 들어온 사이즈만 '재고 부족' 알림 (한 번 알린 사이즈는 다시 늘었다 줄어들 때까지 알리지 않음)
   const qtyKnown = snap.sizesKnown && snap.qty && Object.keys(snap.qty).length > 0;
   const low = qtyKnown && cur.status === 'SALE'
-    ? sortSizes(Object.keys(sizes).filter((s) => sizes[s] && snap.qty[s] !== undefined && snap.qty[s] <= lowLimit), order)
+    ? sortSizes(Object.keys(sizes).filter((s) => sizes[s] && snap.qty[s] !== undefined && snap.qty[s] <= lowLimit
+      && (!restock || restock.has(s))), order)
     : [];
   const prevLow = new Set(String(prevPadded[9] || '').split(',').map((x) => normalizeSize(x.replace(/\(.*\)/, ''))).filter(Boolean));
   const newLow = low.filter((s) => !prevLow.has(s));
   if (newLow.length) {
     events.push({
       type: '재고 부족', watched: true, lowStock: true, label: '재고 부족', notify: true,
-      text: `${newLow.map((s) => `${s} ${snap.qty[s]}개`).join(', ')} 남음 — 재입고 일정 확인 필요`,
+      text: restock
+        ? newLow.map((s) => `${s} ${snap.qty[s]}개 남음 (${restock.get(s)})`).join(', ')
+        : `${newLow.map((s) => `${s} ${snap.qty[s]}개`).join(', ')} 남음 — 재입고 일정 확인 필요`,
     });
   }
   const lowText = qtyKnown ? low.map((s) => `${s}(${snap.qty[s]})`).join(', ') : prevPadded[9];

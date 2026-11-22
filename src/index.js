@@ -3,7 +3,8 @@
 //   npm run watch   : 켜 둔 동안 INTERVAL_MINUTES 마다 계속 확인 (PC에서 실시간 감시용)
 //   npm run dry     : 시트·슬랙에 아무것도 쓰지 않고 결과만 출력
 
-const { DRY_RUN, WATCH, INTERVAL_MINUTES, TABS, SOURCE, LOW_STOCK_LIMIT } = require('./config');
+const { DRY_RUN, WATCH, INTERVAL_MINUTES, TABS, SOURCE, LOW_STOCK_LIMIT, LOW_STOCK_SCOPE } = require('./config');
+const { buildRestockIndex, describeRestock } = require('./restock');
 const { fetchSeasonListing, listingToRaws } = require('./listing');
 const { browserRowToRaw } = require('./browser-data');
 const { createSheets } = require('./sheets');
@@ -41,6 +42,25 @@ async function runOnce() {
   else if (SOURCE === 'listing') raws = await fetchByListing(targets);
   else raws = await fetchAuto(targets, sheets);
 
+  // 재고 부족 체크 범위: 입고일정 탭에 앞으로 입고 일정이 있는 사이즈만
+  let restockIndex = null;
+  if (LOW_STOCK_SCOPE === 'restock') {
+    const rows = await sheets.readRestockTab();
+    if (!rows) {
+      restockIndex = { bySize: new Map(), unmatched: [], count: 0 };
+      console.log(`   [입고일정] '${TABS.restock}' 탭이 없어 재고 부족 알림을 쉽니다.`);
+    } else {
+      restockIndex = buildRestockIndex(rows, targets, stamp().slice(0, 10));
+      console.log(`   [입고일정] 앞으로의 일정 ${restockIndex.count}건 · 연결된 상품 ${restockIndex.bySize.size}개`
+        + (restockIndex.unmatched.length ? ` · 상품등록에서 못 찾은 제품명: ${restockIndex.unmatched.join(', ')}` : ''));
+    }
+  }
+  const restockFor = (goodsNo) => {
+    if (!restockIndex) return null; // 'all' 범위
+    const m = restockIndex.bySize.get(goodsNo) || new Map();
+    return new Map([...m].map(([size, list]) => [size, describeRestock(list)]));
+  };
+
   // 2) 시즌별로 직전 상태와 비교
   const now = stamp();
   const logRows = [];
@@ -59,7 +79,7 @@ async function runOnce() {
       const snap = toSnapshot(raws.get(product.goodsNo), sizeOrder);
       if (snap.error) failed++;
       const prev = tab.rows.get(product.goodsNo);
-      const { row, events } = evaluate({ product, prevRow: prev?.values || null, snap, now, lowLimit: LOW_STOCK_LIMIT });
+      const { row, events } = evaluate({ product, prevRow: prev?.values || null, snap, now, lowLimit: LOW_STOCK_LIMIT, restock: restockFor(product.goodsNo) });
       updates.push({ sheetRow: prev ? prev.sheetRow : nextRow++, values: row });
 
       const url = productUrl(product.goodsNo);
@@ -67,7 +87,8 @@ async function runOnce() {
       for (const ev of events) {
         logRows.push([now, ev.label, name, ev.text, url]);
         historyRows.push([now, season, ev.label, product.goodsNo, name, ev.text, url]);
-        console.log(`   [${ev.label}] ${product.goodsNo} ${name} — ${ev.text}`);
+        // 공개 저장소의 실행 기록은 누구나 볼 수 있으므로 입고 일정(내부 정보)은 기록에 남기지 않음
+        console.log(`   [${ev.label}] ${product.goodsNo} ${name} — ${ev.lowStock ? ev.text.replace(/ \([^)]*\)/g, '') : ev.text}`);
         if (ev.notify) (ev.lowStock ? lowStockLines : slackLines).push(`• <${url}|${esc(name)}> — *${ev.label}*: ${esc(ev.text)}`);
       }
     }
@@ -88,7 +109,9 @@ async function runOnce() {
     await sheets.appendHistory(historyRows);
   }
   await sendSlack(`🔔 *시즌 신상품 품절 체크* (${slackLines.length}건)`, slackLines);
-  await sendSlack(`📦 *재고 ${LOW_STOCK_LIMIT}개 이하 — 재입고 일정 확인 부탁드립니다* (${lowStockLines.length}건)`, lowStockLines);
+  await sendSlack(LOW_STOCK_SCOPE === 'restock'
+    ? `📦 *입고 예정 상품 재고 ${LOW_STOCK_LIMIT}개 이하* (${lowStockLines.length}건)`
+    : `📦 *재고 ${LOW_STOCK_LIMIT}개 이하 — 재입고 일정 확인 부탁드립니다* (${lowStockLines.length}건)`, lowStockLines);
 
   const sec = Math.round((Date.now() - startedAt) / 1000);
   console.log(`[완료] 변동 ${logRows.length}건 기록 ('${TABS.log}', '${TABS.history}') · 슬랙 ${slackLines.length + lowStockLines.length}건 · 조회 실패 ${failed}건 · ${sec}초`);

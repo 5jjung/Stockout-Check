@@ -155,3 +155,34 @@ test('재고 5개 이하 → 재고 부족 알림 (한 번만)', () => {
   assert.equal(r2.events.length, 0);
   assert.equal(r2.row[9], 'M(2), L(5)');
 });
+
+const { buildRestockIndex } = require('../src/restock');
+
+test('입고일정: 제품명 연결(띄어쓰기·색상 코드), 지난 일정·종료 제외', () => {
+  const rows = [
+    ['바코드', '스타일', '컬러', '사이즈', '제품명', '예약발송일', '입고예정일', '입고수량', '차수', '비고', '종료여부'],
+    ['X', 'S1', 'CH', 'S', '플리스 커브드 팬츠 - 차콜', '2026. 12. 18', '2026. 12. 11', 100, '', '', ''],
+    ['X', 'S2', 'CH', 'M', '플리스 스냅 하프넥 롱슬리브', 46374, 46367, 110, '', '', ''],
+    ['X', 'S3', 'LP', 'S', '지그재그 플리스 후디-라이트핑크', '2026. 11. 20', '2026. 11. 13', 10, '', '', ''],
+    ['X', 'S4', 'BK', 'S', '피쉬테일 후드 롱파카-블랙', '2026. 12. 24', '2026. 12. 17', 10, '', '', '종료'],
+  ];
+  const products = [
+    { goodsNo: '1', name: '플리스 커브드 팬츠-차콜' },
+    { goodsNo: '2', name: '플리스 스냅 하프넥 롱슬리브-차콜' },
+    { goodsNo: '3', name: '지그재그 플리스 후디-라이트 핑크' },
+    { goodsNo: '4', name: '피쉬테일 후드 롱파카_블랙' },
+  ];
+  const idx = buildRestockIndex(rows, products, '2026-11-22');
+  assert.deepEqual([...idx.bySize.keys()].sort(), ['1', '2']);
+  assert.ok(idx.bySize.get('2').has('M'));
+  assert.equal(idx.unmatched.length, 0);
+});
+
+test('재고 부족: 입고 일정 있는 사이즈만 알림', () => {
+  const p = product(true, { S: true, M: true, L: true });
+  const prevRow = ['1', 'x', '감시 ON', '✅ 판매중', '', 'S, M, L', '', '', '', ''];
+  const snap = { name: 'x', status: 'SALE', sizes: { S: true, M: true, L: true }, sizesKnown: true, qty: { S: 2, M: 3 } };
+  const r = evaluate({ product: p, prevRow, snap, now: NOW, lowLimit: 5, restock: new Map([['M', '입고 12/11 · 예약발송 12/18']]) });
+  assert.equal(r.row[9], 'M(3)');
+  assert.equal(r.events[0].text, 'M 3개 남음 (입고 12/11 · 예약발송 12/18)');
+});

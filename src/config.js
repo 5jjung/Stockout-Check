@@ -13,6 +13,7 @@ module.exports = {
     registry: '상품등록',    // A 시즌 / B 상품번호 / C 상품명 / D 감시 ON/OFF / E URL / F~ 사이즈 체크박스
     log: '품절_알림기록',    // A 시각 / B 종류 / C 상품명 / D 내용 / E URL
     history: '통합이력',     // A 시각 / B 시즌 / C 종류 / D 상품번호 / E 상품명 / F 내용 / G 상품 URL
+    restock: '입고일정',      // 예약발송 SKU 표를 붙여넣는 탭 (제품명 / 사이즈 / 예약발송일 / 입고예정일 …)
     browser: '브라우저_수집', // 크롬 수집 스크립트가 채움 (A 상품번호 / B 수집 시각 / C 보는 사람 수 / D 재고 JSON / E 오류)
   },
 
@@ -21,6 +22,9 @@ module.exports = {
 
   // 체크된 사이즈의 남은 재고가 이 수 이하가 되면 "재입고 일정 확인" 알림 (크롬 수집에 수량 정보가 있을 때만)
   LOW_STOCK_LIMIT: Number(process.env.LOW_STOCK_LIMIT || 5),
+  //   'restock' : '입고일정' 탭에 앞으로 입고 일정이 있는 사이즈만 체크 (기본)
+  //   'all'     : 체크된 모든 사이즈
+  LOW_STOCK_SCOPE: (process.env.LOW_STOCK_SCOPE || 'restock').toLowerCase(),
 
   // 상품등록 탭에서 사이즈 체크박스가 시작되는 열 (0부터: A=0 … F=5)
   SIZE_COLUMN_START: 5,
