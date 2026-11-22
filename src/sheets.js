@@ -128,9 +128,13 @@ function createSheets() {
     return new Map(rows.filter((r) => /^\d{5,}$/.test(String(r[0] ?? '').trim())).map((r) => [String(r[0]).trim(), r]));
   }
 
-  // 입고일정 탭 전체 (없으면 null)
+  // 예약발송 SKU 업데이트 탭 전체 (없으면 null). 탭 이름이 그 이름으로 시작하면 됨 ('…의 사본' 등)
   async function readRestockTab() {
-    try { return await read(`${q(TABS.restock)}!A1:Z`); } catch { return null; }
+    const meta = await api.spreadsheets.get({ spreadsheetId: id, fields: 'sheets(properties(title))' });
+    const key = (t) => t.replace(/\s+/g, '').toUpperCase();
+    const title = (meta.data.sheets || []).map((x) => x.properties.title).find((t) => key(t).startsWith(key(TABS.restock)));
+    if (!title) return null;
+    return read(`${q(title)}!A1:Z`);
   }
 
   return {

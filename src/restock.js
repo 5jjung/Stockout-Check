@@ -1,5 +1,6 @@
-// 시트 '입고일정' 탭 읽기 → 상품번호·사이즈별 앞으로의 입고 일정
-//   탭 내용: 예약발송 SKU 파일의 표를 그대로 붙여넣은 것 (첫 줄 = 제목줄)
+// 시트 '예약발송 SKU 업데이트' 탭 읽기 → 상품번호·사이즈별 앞으로의 입고 일정
+//   탭 내용: 예약발송 SKU 파일의 같은 이름 탭을 통째로 넣은 것 (제목줄 위치는 자동으로 찾음)
+//   '종료' 표시나 날짜가 지난 줄은 자동으로 빠지므로 앞쪽의 지난 일정은 그대로 둬도 됨
 //   필요한 제목: 제품명, 사이즈, 예약발송일, 입고예정일 (있으면 사용: 컬러, 입고수량, 종료여부)
 //   상품 연결: 제품명을 상품등록의 상품명과 비교 (띄어쓰기·-·_ 무시)
 //             제품명에 색상이 없으면 같은 표에서 컬러 코드로 색상 이름을 찾아 붙임 (예: CH → 차콜)
@@ -32,7 +33,7 @@ function buildRestockIndex(rows, products, today, styleByGoods = new Map()) {
   const col = (name) => head.indexOf(name);
   const c = { barcode: col('바코드'), name: col('제품명'), size: col('사이즈'), color: col('컬러'), ship: col('예약발송일'), arrive: col('입고예정일'), qty: col('입고수량'), done: col('종료여부') };
   if (c.name < 0 || c.size < 0) return out;
-  const data = rows.slice(headerIdx + 1).filter((r) => String(r[c.name] ?? '').trim());
+  const data = rows.slice(headerIdx + 1).filter((r) => String(r[c.name] ?? '').trim() && String(r[c.name]).trim() !== '-');
 
   // 컬러 코드 → 색상 이름 (제품명이 "상품-색상" 형태인 줄에서 배움)
   const colorName = new Map();
