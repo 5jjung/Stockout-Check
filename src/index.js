@@ -104,7 +104,7 @@ async function fetchByProduct(targets) {
 // 목록 방식: 시즌별 브랜드 목록 페이지에서 상품 단위 품절 확인
 async function fetchByListing(targets) {
   const raws = new Map();
-  for (const season of [...new Set(seasonProducts.map((p) => p.season))]) {
+  for (const season of [...new Set(targets.map((p) => p.season))]) {
     const goodsNos = [...new Set(targets.filter((p) => p.season === season).map((p) => p.goodsNo))];
     let items = new Map();
     try {
