@@ -45,6 +45,10 @@ module.exports = {
   // --watch 실행 시 반복 간격(분)
   INTERVAL_MINUTES: Number(process.env.INTERVAL_MINUTES || 5),
 
+  // 변동이 없을 때 "✅ 이상 없음" 상태 알림
+  //   'hourly' : 매시 정각 무렵(0~9분) 실행 때 한 번 (기본) / 'every' : 매 실행마다 / 'off' : 보내지 않음
+  HEARTBEAT: (process.env.HEARTBEAT || 'hourly').toLowerCase(),
+
   // 슬랙 (없으면 시트 기록만 함)
   SLACK_WEBHOOK_URL: (process.env.SLACK_WEBHOOK_URL || '').trim(),
 

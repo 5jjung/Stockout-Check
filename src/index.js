@@ -3,7 +3,10 @@
 //   npm run watch   : 켜 둔 동안 INTERVAL_MINUTES 마다 계속 확인 (PC에서 실시간 감시용)
 //   npm run dry     : 시트·슬랙에 아무것도 쓰지 않고 결과만 출력
 
-const { DRY_RUN, WATCH, INTERVAL_MINUTES, TABS, SOURCE, LOW_STOCK_LIMIT, LOW_STOCK_SCOPE } = require('./config');
+const { DRY_RUN, WATCH, INTERVAL_MINUTES, TABS, SOURCE, LOW_STOCK_LIMIT, LOW_STOCK_SCOPE, HEARTBEAT, BROWSER_MAX_AGE_MIN } = require('./config');
+
+// 이번 실행의 크롬 수집 상태 (상태 알림용)
+const runStats = { chromeSized: null, chromeAgeMin: null };
 const { buildRestockIndex, describeRestock } = require('./restock');
 const { fetchSeasonListing, listingToRaws } = require('./listing');
 const { browserRowToRaw } = require('./browser-data');
@@ -118,6 +121,19 @@ async function runOnce() {
     ? `📦 *입고 예정 상품 재고 ${LOW_STOCK_LIMIT}개 이하* (${lowStockLines.length}건)`
     : `📦 *재고 ${LOW_STOCK_LIMIT}개 이하 — 재입고 일정 확인 부탁드립니다* (${lowStockLines.length}건)`, lowStockLines);
 
+  // 상태 알림: 변동이 없을 때 "이상 없음" (기본 1시간에 한 번) + 크롬 수집이 멈췄으면 경고
+  const kstMinute = Number(new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Seoul', minute: 'numeric' }).format(new Date()));
+  const due = HEARTBEAT === 'every' || (HEARTBEAT === 'hourly' && kstMinute < 10);
+  const chromeStale = SOURCE === 'auto' && (runStats.chromeAgeMin === null || runStats.chromeAgeMin > BROWSER_MAX_AGE_MIN);
+  const quiet = slackLines.length + lowStockLines.length === 0;
+  if (HEARTBEAT !== 'off' && due && (quiet || chromeStale)) {
+    const chromeText = SOURCE !== 'auto' ? ''
+      : ` · 사이즈 확인 ${runStats.chromeSized}/${targets.length}개 · 크롬 마지막 수집 ${runStats.chromeAgeMin === null ? '없음' : `${runStats.chromeAgeMin}분 전`}`;
+    const lines = [`• 감시 상품 ${targets.length}개 확인 · 조회 실패 ${failed}개${chromeText}`];
+    if (chromeStale) lines.push('• ⚠️ 크롬 수집이 멈췄습니다 → 사이즈 품절·재고 부족은 확인되지 않고, 상품 전체 품절만 확인 중입니다. 사무실 PC 크롬의 무신사 탭을 확인해 주세요.');
+    await sendSlack(`${chromeStale ? '⚠️' : '✅'} *품절 체크 ${quiet ? '이상 없음' : '상태'}* (${now})`, lines);
+  }
+
   const sec = Math.round((Date.now() - startedAt) / 1000);
   console.log(`[완료] 변동 ${logRows.length}건 기록 ('${TABS.log}', '${TABS.history}') · 슬랙 ${slackLines.length + lowStockLines.length}건 · 조회 실패 ${failed}건 · ${sec}초`);
   if (targets.length && failed === targets.length) throw new Error('모든 상품 조회에 실패했습니다. 무신사 차단 여부를 확인해 주세요 (README "조회가 전부 실패할 때").');
@@ -168,6 +184,8 @@ async function fetchAuto(targets, sheets) {
     if (raw) { raws.set(p.goodsNo, raw); fromChrome++; }
   }
   const latest = Math.max(0, ...[...browserRows.values()].map((r) => Date.parse(r[1])).filter(Number.isFinite));
+  runStats.chromeSized = fromChrome;
+  runStats.chromeAgeMin = latest ? Math.round((Date.now() - latest) / 60000) : null;
   console.log(`   [크롬 수집] 사이즈별 확인 ${fromChrome}개 / 목록으로만 확인 ${targets.length - fromChrome}개`
     + ` · 마지막 크롬 수집 ${latest ? `${Math.round((Date.now() - latest) / 60000)}분 전` : '없음'}`);
   const withQty = targets.filter((p) => raws.get(p.goodsNo)?.quantity?.size).length;
@@ -200,4 +218,9 @@ async function main() {
   }
 }
 
-main().catch((e) => { console.error('[실패]', e.message); process.exitCode = 1; });
+main().catch(async (e) => {
+  console.error('[실패]', e.message);
+  process.exitCode = 1;
+  // 실행 자체가 실패하면 바로 슬랙으로 알림
+  await sendSlack(`❌ *품절 체크 실행 실패* (${stamp()})`, [`• ${e.message.split('\n')[0]}`]).catch(() => {});
+});
