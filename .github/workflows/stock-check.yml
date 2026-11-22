@@ -45,3 +45,5 @@ jobs:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           DRY_RUN: ${{ inputs.dry_run && '1' || '0' }}
           HEARTBEAT: ${{ inputs.send_status && 'every' || vars.HEARTBEAT }}
+          # 이 날짜(한국시간)까지만 10분마다 '이상 없음' 알림, 다음 날부터 1시간마다
+          HEARTBEAT_EVERY_UNTIL: '2026-11-22'

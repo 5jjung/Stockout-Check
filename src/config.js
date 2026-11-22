@@ -47,7 +47,13 @@ module.exports = {
 
   // 변동이 없을 때 "✅ 이상 없음" 상태 알림
   //   'hourly' : 매시 정각 무렵(0~9분) 실행 때 한 번 (기본) / 'every' : 매 실행마다 / 'off' : 보내지 않음
-  HEARTBEAT: (process.env.HEARTBEAT || 'hourly').toLowerCase(),
+  //   HEARTBEAT_EVERY_UNTIL=YYYY-MM-DD 이면 그날(한국시간)까지만 매 실행마다 보내고, 다음 날부터 원래대로
+  HEARTBEAT: (() => {
+    const until = (process.env.HEARTBEAT_EVERY_UNTIL || '').trim();
+    const today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Seoul' }).format(new Date());
+    if (until && today <= until) return 'every';
+    return (process.env.HEARTBEAT || 'hourly').toLowerCase();
+  })(),
 
   // 슬랙 (없으면 시트 기록만 함)
   SLACK_WEBHOOK_URL: (process.env.SLACK_WEBHOOK_URL || '').trim(),
