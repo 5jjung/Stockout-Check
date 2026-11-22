@@ -1,0 +1,32 @@
+// 크롬 수집 스크립트가 '브라우저_수집' 탭에 적어 둔 사이즈별 재고 읽기
+//   열: A 상품번호 / B 수집 시각(ISO) / C 보는 사람 수 / D 재고 데이터(JSON) / E 오류
+//   수집 시각이 BROWSER_MAX_AGE_MIN 보다 오래됐으면 쓰지 않음
+//   (그 상품은 브랜드 목록 방식으로 상품 단위만 확인)
+
+const { BROWSER_MAX_AGE_MIN } = require('./config');
+
+// 시트 한 줄 → stock.toSnapshot() 이 읽는 원본. 쓸 수 없으면 null
+function browserRowToRaw(row, nowMs = Date.now()) {
+  if (!row) return null;
+  const t = Date.parse(row[1]);
+  if (!Number.isFinite(t) || nowMs - t > BROWSER_MAX_AGE_MIN * 60000) return null; // 오래된 값
+  let s;
+  try { s = JSON.parse(row[3]); } catch { return null; }
+  if (!s || s.error) return null;
+  if (s.gone) return { gone: true, note: '크롬 확인' };
+  if (!s.detail) return null;
+  return {
+    detail: s.detail,
+    options: (s.options || []).map((o) => ({
+      no: String(o.no ?? ''),
+      values: (o.optionValues || []).map((v) => v?.name ?? ''),
+      active: o.activated !== false,
+      isDeleted: o.isDeleted === true,
+      outOfStock: typeof o.outOfStock === 'boolean' ? o.outOfStock : undefined,
+    })),
+    inventory: new Map((s.inventory || []).map((x) => [String(x.productVariantId), x.outOfStock === false])),
+    note: '',
+  };
+}
+
+module.exports = { browserRowToRaw };

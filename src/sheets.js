@@ -117,7 +117,14 @@ function createSheets() {
     });
   }
 
+  // 크롬 수집 탭: Map(상품번호 → 줄). 탭이 없으면 빈 Map
+  async function readBrowserTab() {
+    const rows = await read(`${q(TABS.browser)}!A2:E`).catch(() => []);
+    return new Map(rows.filter((r) => /^\d{5,}$/.test(String(r[0] ?? '').trim())).map((r) => [String(r[0]).trim(), r]));
+  }
+
   return {
+    readBrowserTab,
     readSeasons, readRegistry, ensureSeasonTab, readSeasonTab, writeSeasonRows,
     appendLog: (rows) => appendRows(TABS.log, 'E', rows),         // 시각, 종류, 상품명, 내용, URL
     appendHistory: (rows) => appendRows(TABS.history, 'G', rows), // 시각, 시즌, 종류, 상품번호, 상품명, 내용, 상품 URL

@@ -5,6 +5,7 @@
 
 const { DRY_RUN, WATCH, INTERVAL_MINUTES, TABS, SOURCE } = require('./config');
 const { fetchSeasonListing, listingToRaws } = require('./listing');
+const { browserRowToRaw } = require('./browser-data');
 const { createSheets } = require('./sheets');
 const { fetchProducts, productUrl } = require('./musinsa');
 const { toSnapshot, evaluate } = require('./stock');
@@ -29,13 +30,16 @@ async function runOnce() {
   // 감시 OFF(재입고 일정 없음) 상품은 확인하지 않음
   const targets = seasonProducts.filter((p) => p.watch);
   const offProducts = seasonProducts.filter((p) => !p.watch);
-  console.log(`[시작] ${stamp()} · 조회 방식: ${SOURCE === 'product' ? '상세 페이지(사이즈별)' : '브랜드 목록(상품 단위)'} · 시즌 ON: ${[...seasons].filter(([, on]) => on).map(([s]) => s).join(', ') || '없음'}`
+  console.log(`[시작] ${stamp()} · 조회 방식: ${{ product: '상세 페이지', listing: '브랜드 목록', auto: '크롬 수집 + 브랜드 목록' }[SOURCE] || SOURCE} · 시즌 ON: ${[...seasons].filter(([, on]) => on).map(([s]) => s).join(', ') || '없음'}`
     + ` · 확인할 상품 ${targets.length}개 (감시 OFF ${offProducts.length}개는 제외)`
     + (DRY_RUN ? ' [DRY-RUN: 시트·슬랙에 쓰지 않음]' : ''));
   if (!seasonProducts.length) return;
 
   // 1) 무신사 조회
-  const raws = SOURCE === 'product' ? await fetchByProduct(targets) : await fetchByListing(targets);
+  let raws;
+  if (SOURCE === 'product') raws = await fetchByProduct(targets);
+  else if (SOURCE === 'listing') raws = await fetchByListing(targets);
+  else raws = await fetchAuto(targets, sheets);
 
   // 2) 시즌별로 직전 상태와 비교
   const now = stamp();
@@ -121,6 +125,22 @@ async function fetchByListing(targets) {
       + (missing.length ? ` (${missing.slice(0, 15).join(', ')}${missing.length > 15 ? ' …' : ''})` : ''));
     for (const [g, raw] of seasonRaws) raws.set(g, raw);
   }
+  return raws;
+}
+
+// 자동: 크롬 수집(사이즈별)이 최신인 상품은 그 값, 나머지는 브랜드 목록(상품 단위)
+async function fetchAuto(targets, sheets) {
+  const browserRows = await sheets.readBrowserTab();
+  const raws = await fetchByListing(targets);
+  let fromChrome = 0;
+  for (const p of targets) {
+    const raw = browserRowToRaw(browserRows.get(p.goodsNo));
+    if (raw) { raws.set(p.goodsNo, raw); fromChrome++; }
+  }
+  const latest = Math.max(0, ...[...browserRows.values()].map((r) => Date.parse(r[1])).filter(Number.isFinite));
+  console.log(`   [크롬 수집] 사이즈별 확인 ${fromChrome}개 / 목록으로만 확인 ${targets.length - fromChrome}개`
+    + ` · 마지막 크롬 수집 ${latest ? `${Math.round((Date.now() - latest) / 60000)}분 전` : '없음'}`);
+  if (fromChrome < targets.length) console.log('   (크롬 수집이 없거나 오래된 상품은 상품 전체 품절만 확인합니다. 사무실 PC 크롬에 무신사 탭이 열려 있는지 확인해 주세요)');
   return raws;
 }
 

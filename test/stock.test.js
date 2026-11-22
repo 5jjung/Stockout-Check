@@ -109,3 +109,18 @@ test('목록 방식: 목록이 거의 비면 전부 조회 실패로 처리', ()
   const { raws } = listingToRaws(['1000001', '1000002', '1000003'], new Map());
   assert.ok(raws.get('1000001').error);
 });
+
+const { browserRowToRaw } = require('../src/browser-data');
+
+test('크롬 수집 줄 → 사이즈별 판정, 오래된 값은 무시', () => {
+  const stock = {
+    detail: { goodsSaleType: 'SALE', isOutOfStock: false, goodsNm: 'A' },
+    options: [{ no: 11, activated: true, optionValues: [{ no: 101, name: 'M' }] }, { no: 12, activated: true, optionValues: [{ no: 102, name: 'L' }] }],
+    inventory: [{ productVariantId: 11, outOfStock: false }, { productVariantId: 12, outOfStock: true }],
+  };
+  const now = Date.parse('2026-11-22T08:00:00Z');
+  const raw = browserRowToRaw(['1', '2026-11-22T07:55:00Z', '', JSON.stringify(stock), ''], now);
+  assert.deepEqual(toSnapshot(raw, ORDER).sizes, { M: true, L: false });
+  assert.equal(browserRowToRaw(['1', '2026-11-22T06:00:00Z', '', JSON.stringify(stock), ''], now), null);
+  assert.equal(browserRowToRaw(['1', '2026-11-22T07:55:00Z', '', JSON.stringify({ error: 'x' }), 'x'], now), null);
+});
