@@ -1,13 +1,14 @@
 // ==UserScript==
 // @name         코드그라피 사이즈 품절 수집
 // @namespace    stockout-check
-// @version      1.2.0
+// @version      1.2.1
 // @description  무신사 탭이 열려 있는 동안 10분마다 감시 상품의 사이즈별 재고를 확인해 구글 시트에 적습니다.
 // @match        https://www.musinsa.com/*
 // @grant        GM_xmlhttpRequest
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
+// @grant        GM_info
 // @updateURL    https://raw.githubusercontent.com/5jjung/Stockout-Check/main/chrome/codegraphy-stock-collector.user.js
 // @downloadURL  https://raw.githubusercontent.com/5jjung/Stockout-Check/main/chrome/codegraphy-stock-collector.user.js
 // @connect      script.google.com
@@ -46,7 +47,7 @@
   // 화면 오른쪽 아래 작은 상태 표시
   const badge = document.createElement('div');
   badge.style.cssText = 'position:fixed;right:8px;bottom:8px;z-index:2147483647;background:#111;color:#fff;font:12px/1.4 sans-serif;padding:6px 10px;border-radius:6px;opacity:.85;pointer-events:none;max-width:320px';
-  const show = (t) => { badge.textContent = `품절수집 · ${t}`; if (!badge.isConnected) document.body.appendChild(badge); };
+  const show = (t) => { badge.textContent = `품절수집 v${GM_info.script.version} · ${t}`; if (!badge.isConnected) document.body.appendChild(badge); };
 
   // 구글 시트(웹앱) 통신
   function webapp(method, payload) {
