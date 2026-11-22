@@ -73,7 +73,7 @@ function toSnapshot(raw, knownSizes = []) {
     sizes[size] = sizes[size] === true || inStock; // 같은 사이즈가 여러 줄이면 하나라도 재고 있으면 재고 있음
   }
   const sizesKnown = !unknown && (Object.keys(sizes).length > 0 || status !== 'SALE');
-  return { name: d.goodsNm || '', status, sizes, sizesKnown };
+  return { name: d.goodsNm || '', status, sizes, sizesKnown, note: raw.note || '' };
 }
 
 const splitList = (v) => String(v || '').split(',').map((x) => x.replace(NO_RESTOCK_TAG, '').trim()).filter(Boolean);
@@ -207,7 +207,7 @@ function evaluate({ product, prevRow, snap, now }) {
     available.join(', '),
     watchedIssue ? (prevPadded[6] || now) : '',                    // 문제 발생 시각: 문제가 이어지는 동안 유지
     events.some((e) => e.notify) ? now : prevPadded[7],             // 마지막 알림
-    snap.sizesKnown ? now : `${now} (옵션 재고 확인 불가)`,          // 마지막 확인
+    snap.note ? `${now} (${snap.note})` : snap.sizesKnown ? now : `${now} (옵션 재고 확인 불가)`, // 마지막 확인
   ];
   return { row, events };
 }

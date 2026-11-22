@@ -3,7 +3,8 @@
 //   npm run watch   : 켜 둔 동안 INTERVAL_MINUTES 마다 계속 확인 (PC에서 실시간 감시용)
 //   npm run dry     : 시트·슬랙에 아무것도 쓰지 않고 결과만 출력
 
-const { DRY_RUN, WATCH, INTERVAL_MINUTES, TABS } = require('./config');
+const { DRY_RUN, WATCH, INTERVAL_MINUTES, TABS, SOURCE } = require('./config');
+const { fetchSeasonListing, listingToRaws } = require('./listing');
 const { createSheets } = require('./sheets');
 const { fetchProducts, productUrl } = require('./musinsa');
 const { toSnapshot, evaluate } = require('./stock');
@@ -26,20 +27,13 @@ async function runOnce() {
     return true;
   });
   const onCount = targets.filter((p) => p.watch).length;
-  console.log(`[시작] ${stamp()} · 시즌 ON: ${[...seasons].filter(([, on]) => on).map(([s]) => s).join(', ') || '없음'}`
+  console.log(`[시작] ${stamp()} · 조회 방식: ${SOURCE === 'product' ? '상세 페이지(사이즈별)' : '브랜드 목록(상품 단위)'} · 시즌 ON: ${[...seasons].filter(([, on]) => on).map(([s]) => s).join(', ') || '없음'}`
     + ` · 확인할 상품 ${targets.length}개 (감시 ON ${onCount} / 재입고 일정 없음 ${targets.length - onCount})`
     + (DRY_RUN ? ' [DRY-RUN: 시트·슬랙에 쓰지 않음]' : ''));
   if (!targets.length) return;
 
   // 1) 무신사 조회
-  let done = 0;
-  const raws = await fetchProducts([...new Set(targets.map((p) => p.goodsNo))], {
-    onEach: (g, raw) => {
-      done++;
-      if (raw.error) console.warn(`   [조회 실패] ${g}: ${raw.error}`);
-      if (done % 20 === 0) console.log(`   … ${done}개 확인`);
-    },
-  });
+  const raws = SOURCE === 'product' ? await fetchByProduct(targets) : await fetchByListing(targets);
 
   // 2) 시즌별로 직전 상태와 비교
   const now = stamp();
@@ -87,6 +81,41 @@ async function runOnce() {
   const sec = Math.round((Date.now() - startedAt) / 1000);
   console.log(`[완료] 변동 ${logRows.length}건 기록 ('${TABS.log}', '${TABS.history}') · 슬랙 ${slackLines.length}건 · 조회 실패 ${failed}건 · ${sec}초`);
   if (failed === targets.length) throw new Error('모든 상품 조회에 실패했습니다. 무신사 차단 여부를 확인해 주세요 (README "조회가 전부 실패할 때").');
+}
+
+// 상세 페이지 방식: 상품마다 열어서 사이즈별 재고까지 확인
+async function fetchByProduct(targets) {
+  let done = 0;
+  return fetchProducts([...new Set(targets.map((p) => p.goodsNo))], {
+    onEach: (g, raw) => {
+      done++;
+      if (raw.error) console.warn(`   [조회 실패] ${g}: ${raw.error}`);
+      if (done % 20 === 0) console.log(`   … ${done}개 확인`);
+    },
+  });
+}
+
+// 목록 방식: 시즌별 브랜드 목록 페이지에서 상품 단위 품절 확인
+async function fetchByListing(targets) {
+  const raws = new Map();
+  for (const season of [...new Set(targets.map((p) => p.season))]) {
+    const goodsNos = [...new Set(targets.filter((p) => p.season === season).map((p) => p.goodsNo))];
+    let items = new Map();
+    try {
+      const r = await fetchSeasonListing(season);
+      items = r.items;
+      for (const line of r.log) console.log(`   [목록 ${season}] ${line}`);
+    } catch (e) {
+      console.warn(`   [목록 ${season}] 수집 실패: ${e.message.split('\n')[0]}`);
+    }
+    const { raws: seasonRaws, found } = listingToRaws(goodsNos, items);
+    const soldFlag = goodsNos.filter((g) => items.get(g)?.soldOut).length;
+    const missing = goodsNos.filter((g) => !items.has(g));
+    console.log(`   [목록 ${season}] 등록 상품 ${goodsNos.length}개 중 목록에서 ${found}개 확인 · 품절 표시 ${soldFlag}개 · 목록에 없음 ${missing.length}개`
+      + (missing.length ? ` (${missing.slice(0, 15).join(', ')}${missing.length > 15 ? ' …' : ''})` : ''));
+    for (const [g, raw] of seasonRaws) raws.set(g, raw);
+  }
+  return raws;
 }
 
 async function main() {

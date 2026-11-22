@@ -94,3 +94,21 @@ test('응답 JSON에서 상품정보·옵션·재고 찾기', () => {
   assert.deepEqual(found.options.get('11').values, ['M']);
   assert.equal(found.inventory.get('11'), false);
 });
+
+const { listingToRaws, collectItems: collectListing, seasonTags } = require('../src/listing');
+
+test('목록 방식: 판매중 / 품절 표시 / 목록에서 빠짐', () => {
+  assert.deepEqual(seasonTags('26FW'), ['26FALL', '26WINTER']);
+  const items = new Map();
+  collectListing({ data: { list: [{ goodsNo: 1000001, goodsName: 'A', isSoldOut: false }, { goodsNo: 1000002, goodsName: 'B', isSoldOut: true }] } }, items);
+  const { raws } = listingToRaws(['1000001', '1000002', '1000003'], items);
+  assert.equal(toSnapshot(raws.get('1000001')).status, 'SALE');
+  assert.equal(toSnapshot(raws.get('1000002')).status, 'SOLDOUT');
+  assert.equal(toSnapshot(raws.get('1000003')).status, 'SOLDOUT');
+  assert.match(toSnapshot(raws.get('1000003')).note, /목록에서 빠짐/);
+});
+
+test('목록 방식: 목록이 거의 비면 전부 조회 실패로 처리', () => {
+  const { raws } = listingToRaws(['1000001', '1000002', '1000003'], new Map());
+  assert.ok(raws.get('1000001').error);
+});

@@ -21,7 +21,11 @@ module.exports = {
   // 상품등록 탭에서 사이즈 체크박스가 시작되는 열 (0부터: A=0 … F=5)
   SIZE_COLUMN_START: 5,
 
-  // 무신사 조회
+  // 무신사 조회 방식
+  //   'listing' : 브랜드 목록 페이지로 상품 전체 품절만 확인 (GitHub 서버에서 사용)
+  //   'product' : 상품 상세 페이지로 사이즈별 품절까지 확인 (상세 페이지가 열리는 환경에서만)
+  SOURCE: (process.env.SOURCE || 'listing').toLowerCase(),
+
   CONCURRENCY: Number(process.env.CONCURRENCY || 3),          // 동시에 여는 상품 페이지 수
   PAGE_TIMEOUT_MS: Number(process.env.PAGE_TIMEOUT_MS || 30000),
   DELAY_BETWEEN_MS: Number(process.env.DELAY_BETWEEN_MS || 800), // 상품 사이 쉬는 시간 (서버 배려)
