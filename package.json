@@ -1,0 +1,21 @@
+{
+  "name": "season-new-stock-check",
+  "version": "1.0.0",
+  "description": "시즌 신상품 품절 실시간 체크 (구글시트 연동)",
+  "private": true,
+  "main": "src/index.js",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "check": "node --env-file-if-exists=.env src/index.js",
+    "watch": "node --env-file-if-exists=.env src/index.js --watch",
+    "dry": "node --env-file-if-exists=.env src/index.js --dry-run",
+    "probe": "node --env-file-if-exists=.env scripts/probe.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "googleapis": "^190.0.0",
+    "playwright": "1.63.0"
+  }
+}

@@ -1,0 +1,11 @@
+# 의존성
+node_modules/
+
+# 비밀 정보 — 퍼블릭 저장소이므로 절대 올리지 않음
+.env
+credentials.json
+*service-account*.json
+
+# 기타
+.DS_Store
+*.log
