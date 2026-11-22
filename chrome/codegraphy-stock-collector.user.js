@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         코드그라피 사이즈 품절 수집
 // @namespace    stockout-check
-// @version      1.2.1
+// @version      1.3.0
 // @description  무신사 탭이 열려 있는 동안 10분마다 감시 상품의 사이즈별 재고를 확인해 구글 시트에 적습니다.
 // @match        https://www.musinsa.com/*
 // @grant        GM_xmlhttpRequest
@@ -89,6 +89,18 @@
     }
     for (const v of Object.values(json)) { const f = find(v, test, depth + 1); if (f) return f; }
     return null;
+  }
+  // 조건에 맞는 배열을 전부 찾기 (옵션 "묶음"과 실제 "사이즈별 항목"이 둘 다 optionValues 를 가짐)
+  function findAll(json, test, out = [], depth = 0) {
+    if (!json || typeof json !== 'object' || depth > 8) return out;
+    if (Array.isArray(json)) {
+      const objs = json.filter((x) => x && typeof x === 'object');
+      if (objs.length && objs.every(test)) { out.push(objs); return out; }
+      for (const x of objs) findAll(x, test, out, depth + 1);
+      return out;
+    }
+    for (const v of Object.values(json)) findAll(v, test, out, depth + 1);
+    return out;
   }
   function findDetail(json, goodsNo, depth = 0) {
     if (!json || typeof json !== 'object' || depth > 8) return null;
@@ -206,17 +218,21 @@
     const debug = { tried: [] };
     const found = await getOptions(goodsNo, detail.goodsSaleType, debug);
     if (!found) return { ...base, options: [], inventory: [], error: '사이즈 옵션을 받지 못함', debug };
-    const options = found.opts;
-
     // 재고: 옵션 응답 안에 같이 있으면 그걸, 없으면 재고 주소에 따로 요청
+    const groups = found.json ? findAll(found.json, isOption) : [found.opts];
+    const allValueNos = [...new Set(groups.flat().flatMap((x) => x.optionValues.map((v) => v.no)).filter((v) => v != null))];
     let inventory = (found.json && find(found.json, isInventory)) || [];
-    const optStock = (x) => (typeof x.outOfStock === 'boolean' ? x.outOfStock : typeof x.isSoldOut === 'boolean' ? x.isSoldOut : undefined);
-    if (!inventory.length && !options.every((x) => typeof optStock(x) === 'boolean')) {
-      const valueNos = [...new Set(options.flatMap((x) => x.optionValues.map((v) => v.no)).filter((v) => v != null))];
-      const inv = await get(`${API}/${goodsNo}/options/v2/prioritized-inventories`, { optionValueNos: valueNos });
+    if (!inventory.length) {
+      const inv = await get(`${API}/${goodsNo}/options/v2/prioritized-inventories`, { optionValueNos: allValueNos });
       inventory = (inv.json && find(inv.json, isInventory)) || [];
       if (!inventory.length) debug.tried.push(`${inv.status} 재고 POST prioritized-inventories ${keysOf(inv.json)}`);
     }
+    // 실제 사이즈별 항목 고르기: 재고 번호(productVariantId)와 번호가 맞는 목록
+    //  (예: basic=[{사이즈 묶음: S,M,L}] 은 묶음이라 재고와 번호가 안 맞음 → optionItems 같은 목록을 씀)
+    const invIds = new Set(inventory.map((x) => String(x.productVariantId)));
+    const options = groups.find((g) => g.some((x) => invIds.has(String(x.no))))
+      || groups.slice().sort((a, b) => b.length - a.length)[0];
+    const optStock = (x) => (typeof x.outOfStock === 'boolean' ? x.outOfStock : typeof x.isSoldOut === 'boolean' ? x.isSoldOut : undefined);
     const stock = {
       ...base,
       options: options.map((x) => ({
@@ -225,6 +241,12 @@
       })),
       inventory: inventory.map((x) => ({ productVariantId: x.productVariantId, outOfStock: x.outOfStock })),
     };
+    // 재고 번호와 맞는 사이즈 항목이 하나도 없으면 판정 불가 (잘못된 품절 방지)
+    if (stock.inventory.length && !stock.options.some((x) => invIds.has(String(x.no)))) {
+      stock.error = '옵션과 재고 번호가 맞지 않음';
+      stock.debug = { ...debug, groups: groups.map((g) => g.slice(0, 3)), inventorySample: inventory.slice(0, 3) };
+      return stock;
+    }
     if (!stock.inventory.length && !stock.options.every((x) => typeof x.outOfStock === 'boolean')) {
       stock.error = '옵션별 재고를 받지 못함';
       stock.debug = debug;

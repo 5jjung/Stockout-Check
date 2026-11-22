@@ -60,7 +60,12 @@ function toSnapshot(raw, knownSizes = []) {
 
   const sizes = {};
   let unknown = false;
-  for (const o of (raw.options || []).filter((x) => !x.isDeleted)) {
+  const liveOptions = (raw.options || []).filter((x) => !x.isDeleted);
+  // 재고 목록이 있는데 옵션 번호와 하나도 안 맞으면 → 사이즈 판정 불가 (전부 품절로 잘못 보는 것 방지)
+  if (status === 'SALE' && raw.inventory && raw.inventory.size && !liveOptions.some((o) => raw.inventory.has(String(o.no)))) {
+    return { name: d.goodsNm || '', status, sizes: {}, sizesKnown: false, note: raw.note || '' };
+  }
+  for (const o of liveOptions) {
     const size = pickSize(o.values, knownSizes);
     if (!size) continue;
     let inStock;

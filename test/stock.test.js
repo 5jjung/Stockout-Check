@@ -130,3 +130,14 @@ test('크롬 수집: 판매중인데 옵션이 비어 있으면 사이즈 정보
   const stock = { detail: { goodsSaleType: 'SALE', isOutOfStock: false }, options: [], inventory: [] };
   assert.equal(browserRowToRaw(['1', '2026-11-22T07:55:00Z', '', JSON.stringify(stock), ''], now), null);
 });
+
+test('옵션 번호가 재고 번호와 안 맞으면 사이즈 판정 안 함 (맨 앞 사이즈 오판 방지)', () => {
+  const raw = {
+    detail: { goodsSaleType: 'SALE', isOutOfStock: false },
+    options: [{ no: '10296908', values: ['S', 'M', 'L'], active: true }],
+    inventory: new Map([['32078760', true], ['32078761', true]]),
+  };
+  const snap = toSnapshot(raw, ORDER);
+  assert.equal(snap.sizesKnown, false);
+  assert.deepEqual(snap.sizes, {});
+});
