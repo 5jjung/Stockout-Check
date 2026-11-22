@@ -15,6 +15,9 @@ function browserRowToRaw(row, nowMs = Date.now()) {
   if (!s || s.error) return null;
   if (s.gone) return { gone: true, note: '크롬 확인' };
   if (!s.detail) return null;
+  // 판매중인데 사이즈 옵션이 없으면 사이즈 정보가 없는 것 → 쓰지 않음 (목록 방식으로 대신 확인)
+  const onSale = s.detail.goodsSaleType === 'SALE' && s.detail.isOutOfStock !== true;
+  if (onSale && !(s.options || []).length) return null;
   return {
     detail: s.detail,
     options: (s.options || []).map((o) => ({

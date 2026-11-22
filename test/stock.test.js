@@ -124,3 +124,9 @@ test('크롬 수집 줄 → 사이즈별 판정, 오래된 값은 무시', () =>
   assert.equal(browserRowToRaw(['1', '2026-11-22T06:00:00Z', '', JSON.stringify(stock), ''], now), null);
   assert.equal(browserRowToRaw(['1', '2026-11-22T07:55:00Z', '', JSON.stringify({ error: 'x' }), 'x'], now), null);
 });
+
+test('크롬 수집: 판매중인데 옵션이 비어 있으면 사이즈 정보 없음으로 처리', () => {
+  const now = Date.parse('2026-11-22T08:00:00Z');
+  const stock = { detail: { goodsSaleType: 'SALE', isOutOfStock: false }, options: [], inventory: [] };
+  assert.equal(browserRowToRaw(['1', '2026-11-22T07:55:00Z', '', JSON.stringify(stock), ''], now), null);
+});
