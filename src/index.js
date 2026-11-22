@@ -140,6 +140,13 @@ async function fetchAuto(targets, sheets) {
   const latest = Math.max(0, ...[...browserRows.values()].map((r) => Date.parse(r[1])).filter(Number.isFinite));
   console.log(`   [크롬 수집] 사이즈별 확인 ${fromChrome}개 / 목록으로만 확인 ${targets.length - fromChrome}개`
     + ` · 마지막 크롬 수집 ${latest ? `${Math.round((Date.now() - latest) / 60000)}분 전` : '없음'}`);
+  // 미리보기(DRY-RUN)일 때 크롬 원본 데이터 몇 개를 그대로 보여줌 (판정 점검용)
+  if (DRY_RUN) {
+    for (const g of (process.env.DEBUG_GOODS || '6884859,6885281').split(',')) {
+      const r = browserRows.get(g.trim());
+      if (r) console.log(`   [크롬 원본] ${g} ${String(r[3]).slice(0, 3000)}`);
+    }
+  }
   // 크롬이 사이즈 옵션을 못 받았을 때 남긴 진단 정보 (원인 파악용)
   for (const r of browserRows.values()) {
     try {
