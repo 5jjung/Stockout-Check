@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         코드그라피 사이즈 품절 수집
 // @namespace    stockout-check
-// @version      1.4.0
+// @version      1.5.0
 // @description  무신사 탭이 열려 있는 동안 10분마다 감시 상품의 사이즈별 재고를 확인해 구글 시트에 적습니다.
 // @match        https://www.musinsa.com/*
 // @grant        GM_xmlhttpRequest
@@ -212,7 +212,12 @@
     if (d.status !== 200) return { error: `상세 HTTP ${d.status}` };
     const detail = findDetail(d.json, goodsNo);
     if (!detail) return { error: '상세 정보 없음' };
-    const base = { detail: { goodsSaleType: detail.goodsSaleType, isOutOfStock: detail.isOutOfStock === true, goodsNm: detail.goodsNm || '' } };
+    // 브랜드 품번(스타일 코드) — 입고일정의 바코드와 연결할 때 사용
+    const styleKey = ['styleNo', 'goodsStyleNo', 'brandStyleNo', 'styleNumber', 'modelNo', 'goodsCode']
+      .find((k) => typeof detail[k] === 'string' && detail[k].trim())
+      || Object.keys(detail).find((k) => /style/i.test(k) && typeof detail[k] === 'string' && detail[k].trim());
+    const base = { detail: { goodsSaleType: detail.goodsSaleType, isOutOfStock: detail.isOutOfStock === true, goodsNm: detail.goodsNm || '', styleNo: styleKey ? detail[styleKey].trim() : '', styleKey: styleKey || '',
+      ...(styleKey ? {} : { detailKeys: Object.keys(detail).slice(0, 80) }) } }; // 품번 칸을 못 찾으면 진단용으로 칸 이름 보관
     if (detail.goodsSaleType !== 'SALE' || detail.isOutOfStock === true) return { ...base, options: [], inventory: [] }; // 전체 품절·판매중지는 옵션 볼 필요 없음
 
     const debug = { tried: [] };

@@ -186,3 +186,14 @@ test('재고 부족: 입고 일정 있는 사이즈만 알림', () => {
   assert.equal(r.row[9], 'M(3)');
   assert.equal(r.events[0].text, 'M 3개 남음 (입고 12/11 · 예약발송 12/18)');
 });
+
+test('입고일정: 바코드(스타일+컬러 / 사이즈 3자리)로 상품번호 연결', () => {
+  const rows = [
+    ['바코드', '스타일', '컬러', '사이즈', '제품명', '예약발송일', '입고예정일'],
+    ['CBFUW0401KK0XS', 'CBFUW0401', 'KK', 'XS', '이름이 전혀 다른 표기', '2026. 12. 18', '2026. 12. 11'],
+    ['CBFUW0401KK00S', 'CBFUW0401', 'KK', 'S', '이름이 전혀 다른 표기', '2026. 12. 18', '2026. 12. 11'],
+  ];
+  const idx = buildRestockIndex(rows, [{ goodsNo: '5562220', name: '경량 후드 패딩-카키' }], '2026-11-22', new Map([['5562220', 'CBFUW0401KK']]));
+  assert.equal(idx.byBarcode, 2);
+  assert.deepEqual([...idx.bySize.get('5562220').keys()], ['XS', 'S']);
+});

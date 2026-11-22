@@ -50,8 +50,13 @@ async function runOnce() {
       restockIndex = { bySize: new Map(), unmatched: [], count: 0 };
       console.log(`   [입고일정] '${TABS.restock}' 탭이 없어 재고 부족 알림을 쉽니다.`);
     } else {
-      restockIndex = buildRestockIndex(rows, targets, stamp().slice(0, 10));
-      console.log(`   [입고일정] 앞으로의 일정 ${restockIndex.count}건 · 연결된 상품 ${restockIndex.bySize.size}개`
+      // 무신사 브랜드 품번 (크롬 수집 값, 오래된 값이어도 품번은 그대로라 사용)
+      const styleByGoods = new Map();
+      for (const [g, r] of await sheets.readBrowserTab()) {
+        try { const st = JSON.parse(r[3])?.detail?.styleNo; if (st) styleByGoods.set(g, st); } catch { /* 무시 */ }
+      }
+      restockIndex = buildRestockIndex(rows, targets, stamp().slice(0, 10), styleByGoods);
+      console.log(`   [입고일정] 앞으로의 일정 ${restockIndex.count}건 (바코드로 연결 ${restockIndex.byBarcode}건) · 연결된 상품 ${restockIndex.bySize.size}개 · 품번 아는 상품 ${styleByGoods.size}개`
         + (restockIndex.unmatched.length ? ` · 상품등록에서 못 찾은 제품명: ${restockIndex.unmatched.join(', ')}` : ''));
     }
   }
