@@ -3,7 +3,7 @@
 //   npm run watch   : 켜 둔 동안 INTERVAL_MINUTES 마다 계속 확인 (PC에서 실시간 감시용)
 //   npm run dry     : 시트·슬랙에 아무것도 쓰지 않고 결과만 출력
 
-const { DRY_RUN, WATCH, INTERVAL_MINUTES, TABS, SOURCE } = require('./config');
+const { DRY_RUN, WATCH, INTERVAL_MINUTES, TABS, SOURCE, LOW_STOCK_LIMIT } = require('./config');
 const { fetchSeasonListing, listingToRaws } = require('./listing');
 const { browserRowToRaw } = require('./browser-data');
 const { createSheets } = require('./sheets');
@@ -46,6 +46,7 @@ async function runOnce() {
   const logRows = [];
   const historyRows = [];
   const slackLines = [];
+  const lowStockLines = [];
   let failed = 0;
 
   for (const season of [...new Set(seasonProducts.map((p) => p.season))]) {
@@ -58,7 +59,7 @@ async function runOnce() {
       const snap = toSnapshot(raws.get(product.goodsNo), sizeOrder);
       if (snap.error) failed++;
       const prev = tab.rows.get(product.goodsNo);
-      const { row, events } = evaluate({ product, prevRow: prev?.values || null, snap, now });
+      const { row, events } = evaluate({ product, prevRow: prev?.values || null, snap, now, lowLimit: LOW_STOCK_LIMIT });
       updates.push({ sheetRow: prev ? prev.sheetRow : nextRow++, values: row });
 
       const url = productUrl(product.goodsNo);
@@ -67,15 +68,15 @@ async function runOnce() {
         logRows.push([now, ev.label, name, ev.text, url]);
         historyRows.push([now, season, ev.label, product.goodsNo, name, ev.text, url]);
         console.log(`   [${ev.label}] ${product.goodsNo} ${name} — ${ev.text}`);
-        if (ev.notify) slackLines.push(`• <${url}|${esc(name)}> — *${ev.label}*: ${esc(ev.text)}`);
+        if (ev.notify) (ev.lowStock ? lowStockLines : slackLines).push(`• <${url}|${esc(name)}> — *${ev.label}*: ${esc(ev.text)}`);
       }
     }
     // 감시 OFF 상품: 시즌 탭에 이미 줄이 있으면 '감시 안 함'으로만 바꿔 둠 (새 줄은 만들지 않음)
     for (const product of offProducts.filter((p) => p.season === season)) {
       const prev = tab.rows.get(product.goodsNo);
       if (!prev) continue;
-      const v = Array.from({ length: 9 }, (_, i) => prev.values[i] ?? '');
-      updates.push({ sheetRow: prev.sheetRow, values: [product.goodsNo, v[1] || product.name, '감시 OFF', '⏸ 감시 안 함 (재입고 일정 없음)', '', '', '', v[7], v[8]] });
+      const v = Array.from({ length: 10 }, (_, i) => prev.values[i] ?? '');
+      updates.push({ sheetRow: prev.sheetRow, values: [product.goodsNo, v[1] || product.name, '감시 OFF', '⏸ 감시 안 함 (재입고 일정 없음)', '', '', '', v[7], v[8], ''] });
     }
     if (!DRY_RUN) await sheets.writeSeasonRows(season, updates);
     console.log(`   '${season}' 탭 ${updates.length}개 상품 현황 갱신${DRY_RUN ? ' (DRY-RUN: 실제로는 안 씀)' : ''}`);
@@ -87,9 +88,10 @@ async function runOnce() {
     await sheets.appendHistory(historyRows);
   }
   await sendSlack(`🔔 *시즌 신상품 품절 체크* (${slackLines.length}건)`, slackLines);
+  await sendSlack(`📦 *재고 ${LOW_STOCK_LIMIT}개 이하 — 재입고 일정 확인 부탁드립니다* (${lowStockLines.length}건)`, lowStockLines);
 
   const sec = Math.round((Date.now() - startedAt) / 1000);
-  console.log(`[완료] 변동 ${logRows.length}건 기록 ('${TABS.log}', '${TABS.history}') · 슬랙 ${slackLines.length}건 · 조회 실패 ${failed}건 · ${sec}초`);
+  console.log(`[완료] 변동 ${logRows.length}건 기록 ('${TABS.log}', '${TABS.history}') · 슬랙 ${slackLines.length + lowStockLines.length}건 · 조회 실패 ${failed}건 · ${sec}초`);
   if (targets.length && failed === targets.length) throw new Error('모든 상품 조회에 실패했습니다. 무신사 차단 여부를 확인해 주세요 (README "조회가 전부 실패할 때").');
 }
 
@@ -140,6 +142,8 @@ async function fetchAuto(targets, sheets) {
   const latest = Math.max(0, ...[...browserRows.values()].map((r) => Date.parse(r[1])).filter(Number.isFinite));
   console.log(`   [크롬 수집] 사이즈별 확인 ${fromChrome}개 / 목록으로만 확인 ${targets.length - fromChrome}개`
     + ` · 마지막 크롬 수집 ${latest ? `${Math.round((Date.now() - latest) / 60000)}분 전` : '없음'}`);
+  const withQty = targets.filter((p) => raws.get(p.goodsNo)?.quantity?.size).length;
+  console.log(`   [크롬 수집] 남은 수량 정보 있는 상품 ${withQty}개${withQty ? '' : ' (수량 정보가 없으면 재고 부족 알림은 동작하지 않음)'}`);
   // 미리보기(DRY-RUN)일 때 크롬 원본 데이터 몇 개를 그대로 보여줌 (판정 점검용)
   if (DRY_RUN) {
     for (const g of (process.env.DEBUG_GOODS || '6884859,6885281').split(',')) {

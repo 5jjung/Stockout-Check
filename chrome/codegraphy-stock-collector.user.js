@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         코드그라피 사이즈 품절 수집
 // @namespace    stockout-check
-// @version      1.3.0
+// @version      1.4.0
 // @description  무신사 탭이 열려 있는 동안 10분마다 감시 상품의 사이즈별 재고를 확인해 구글 시트에 적습니다.
 // @match        https://www.musinsa.com/*
 // @grant        GM_xmlhttpRequest
@@ -239,7 +239,8 @@
         no: x.no, managedCode: x.managedCode, activated: x.activated, isDeleted: x.isDeleted, outOfStock: optStock(x),
         optionValues: x.optionValues.map((v) => ({ no: v.no, name: v.name })),
       })),
-      inventory: inventory.map((x) => ({ productVariantId: x.productVariantId, outOfStock: x.outOfStock })),
+      // 재고 항목의 숫자·글자 값은 모두 보관 (남은 수량 등)
+      inventory: inventory.map((x) => Object.fromEntries(Object.entries(x).filter(([, v]) => v === null || typeof v !== 'object'))),
     };
     // 재고 번호와 맞는 사이즈 항목이 하나도 없으면 판정 불가 (잘못된 품절 방지)
     if (stock.inventory.length && !stock.options.some((x) => invIds.has(String(x.no)))) {

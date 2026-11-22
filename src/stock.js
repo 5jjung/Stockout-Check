@@ -65,9 +65,11 @@ function toSnapshot(raw, knownSizes = []) {
   if (status === 'SALE' && raw.inventory && raw.inventory.size && !liveOptions.some((o) => raw.inventory.has(String(o.no)))) {
     return { name: d.goodsNm || '', status, sizes: {}, sizesKnown: false, note: raw.note || '' };
   }
+  const qty = {}; // 사이즈별 남은 수량 (알 수 있을 때만)
   for (const o of liveOptions) {
     const size = pickSize(o.values, knownSizes);
     if (!size) continue;
+    if (raw.quantity && raw.quantity.has(String(o.no))) qty[size] = (qty[size] || 0) + raw.quantity.get(String(o.no));
     let inStock;
     if (status !== 'SALE' || o.active === false) inStock = false;
     else if (raw.inventory && raw.inventory.size) inStock = raw.inventory.get(String(o.no)) === true;
@@ -76,7 +78,7 @@ function toSnapshot(raw, knownSizes = []) {
     sizes[size] = sizes[size] === true || inStock; // 같은 사이즈가 여러 줄이면 하나라도 재고 있으면 재고 있음
   }
   const sizesKnown = !unknown && (Object.keys(sizes).length > 0 || status !== 'SALE');
-  return { name: d.goodsNm || '', status, sizes, sizesKnown, note: raw.note || '' };
+  return { name: d.goodsNm || '', status, sizes, sizesKnown, qty, note: raw.note || '' };
 }
 
 const splitList = (v) => String(v || '').split(',').map((x) => x.replace(NO_RESTOCK_TAG, '').trim()).filter(Boolean);
@@ -170,14 +172,14 @@ function shouldNotify(ev) {
 //   product : 상품등록 한 줄 { goodsNo, name, watch, sizeChecks, sizeOrder }
 //   prevRow : 시즌 탭의 기존 줄 (없으면 null)
 //   snap    : toSnapshot() 결과
-function evaluate({ product, prevRow, snap, now }) {
+function evaluate({ product, prevRow, snap, now, lowLimit = 5 }) {
   const order = product.sizeOrder || [];
   const watchText = product.watch ? '감시 ON' : '감시 OFF (재입고 일정 없음)';
-  const prevPadded = Array.from({ length: 9 }, (_, i) => prevRow?.[i] ?? '');
+  const prevPadded = Array.from({ length: 10 }, (_, i) => prevRow?.[i] ?? '');
 
   // 조회 실패: 기존 값을 그대로 두고 '마지막 확인'에만 실패 표시 → 잘못된 품절/재입고 기록 방지
   if (snap.error) {
-    const row = prevRow ? prevPadded : [product.goodsNo, product.name, watchText, '❓ 조회 실패', '', '', '', '', ''];
+    const row = prevRow ? prevPadded : [product.goodsNo, product.name, watchText, '❓ 조회 실패', '', '', '', '', '', ''];
     row[0] = product.goodsNo;
     row[2] = watchText;
     row[8] = `${now} (조회 실패: ${snap.error})`;
@@ -202,6 +204,22 @@ function evaluate({ product, prevRow, snap, now }) {
   const available = allSizes.filter((s) => sizes[s]);
   const watchedIssue = product.watch && (PROBLEM_STATUSES.includes(cur.status) || sold.some((s) => isSizeWatched(product, s)));
 
+  // 재고 적은 옵션: 판매중인 체크된 사이즈 중 남은 수량이 lowLimit 이하
+  //   새로 들어온 사이즈만 '재고 부족' 알림 (한 번 알린 사이즈는 다시 늘었다 줄어들 때까지 알리지 않음)
+  const qtyKnown = snap.sizesKnown && snap.qty && Object.keys(snap.qty).length > 0;
+  const low = qtyKnown && cur.status === 'SALE'
+    ? sortSizes(Object.keys(sizes).filter((s) => sizes[s] && snap.qty[s] !== undefined && snap.qty[s] <= lowLimit), order)
+    : [];
+  const prevLow = new Set(String(prevPadded[9] || '').split(',').map((x) => normalizeSize(x.replace(/\(.*\)/, ''))).filter(Boolean));
+  const newLow = low.filter((s) => !prevLow.has(s));
+  if (newLow.length) {
+    events.push({
+      type: '재고 부족', watched: true, lowStock: true, label: '재고 부족', notify: true,
+      text: `${newLow.map((s) => `${s} ${snap.qty[s]}개`).join(', ')} 남음 — 재입고 일정 확인 필요`,
+    });
+  }
+  const lowText = qtyKnown ? low.map((s) => `${s}(${snap.qty[s]})`).join(', ') : prevPadded[9];
+
   const row = [
     product.goodsNo,
     snap.name || product.name || prevPadded[1],
@@ -212,6 +230,7 @@ function evaluate({ product, prevRow, snap, now }) {
     watchedIssue ? (prevPadded[6] || now) : '',                    // 문제 발생 시각: 문제가 이어지는 동안 유지
     events.some((e) => e.notify) ? now : prevPadded[7],             // 마지막 알림
     snap.note ? `${now} (${snap.note})` : snap.sizesKnown ? now : `${now} (옵션 재고 확인 불가)`, // 마지막 확인
+    lowText,                                                         // 재고 적은 옵션 (예: M(3), L(5))
   ];
   return { row, events };
 }

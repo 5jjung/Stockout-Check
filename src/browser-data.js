@@ -5,6 +5,10 @@
 
 const { BROWSER_MAX_AGE_MIN } = require('./config');
 
+// 재고 항목에서 "남은 수량"으로 볼 수 있는 값 이름 (무신사 응답에 있는 것만 사용)
+const QTY_KEYS = ['remainQuantity', 'remainingQuantity', 'stockQuantity', 'availableQuantity', 'quantity', 'remainCount', 'stock'];
+const qtyOf = (x) => { for (const k of QTY_KEYS) if (typeof x[k] === 'number') return x[k]; return undefined; };
+
 // 시트 한 줄 → stock.toSnapshot() 이 읽는 원본. 쓸 수 없으면 null
 function browserRowToRaw(row, nowMs = Date.now()) {
   if (!row) return null;
@@ -28,8 +32,9 @@ function browserRowToRaw(row, nowMs = Date.now()) {
       outOfStock: typeof o.outOfStock === 'boolean' ? o.outOfStock : undefined,
     })),
     inventory: new Map((s.inventory || []).map((x) => [String(x.productVariantId), x.outOfStock === false])),
+    quantity: new Map((s.inventory || []).filter((x) => qtyOf(x) !== undefined).map((x) => [String(x.productVariantId), qtyOf(x)])),
     note: '',
   };
 }
 
-module.exports = { browserRowToRaw };
+module.exports = { browserRowToRaw, qtyOf };

@@ -141,3 +141,17 @@ test('옵션 번호가 재고 번호와 안 맞으면 사이즈 판정 안 함 (
   assert.equal(snap.sizesKnown, false);
   assert.deepEqual(snap.sizes, {});
 });
+
+test('재고 5개 이하 → 재고 부족 알림 (한 번만)', () => {
+  const p = product(true, { S: true, M: true, L: true });
+  const prevRow = ['6884871', 'x', '감시 ON', '✅ 판매중', '', 'S, M, L', '', '', '', ''];
+  const s1 = { name: 'x', status: 'SALE', sizes: { S: true, M: true, L: true }, sizesKnown: true, qty: { S: 12, M: 3, L: 5 } };
+  const r1 = evaluate({ product: p, prevRow, snap: s1, now: NOW, lowLimit: 5 });
+  assert.equal(r1.row[9], 'M(3), L(5)');
+  assert.equal(r1.events.length, 1);
+  assert.equal(r1.events[0].lowStock, true);
+  assert.match(r1.events[0].text, /M 3개, L 5개 남음/);
+  const r2 = evaluate({ product: p, prevRow: r1.row, snap: { ...s1, qty: { S: 12, M: 2, L: 5 } }, now: NOW, lowLimit: 5 });
+  assert.equal(r2.events.length, 0);
+  assert.equal(r2.row[9], 'M(2), L(5)');
+});

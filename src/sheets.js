@@ -80,19 +80,24 @@ function createSheets() {
       await api.spreadsheets.batchUpdate({ spreadsheetId: id, requestBody: { requests: [{ addSheet: { properties: { title: season } } }] } });
       console.log(`[안내] '${season}' 탭을 새로 만들었습니다.`);
     }
-    const head = (await read(`${q(season)}!A1:I1`))[0] || [];
+    const head = (await read(`${q(season)}!A1:J1`))[0] || [];
     if (!head.some((x) => String(x).trim())) {
       await api.spreadsheets.values.update({
         spreadsheetId: id, range: `${q(season)}!A1`, valueInputOption: 'RAW', requestBody: { values: [SEASON_TAB_HEADER] },
       });
     } else if (String(head[0]).trim() !== SEASON_TAB_HEADER[0]) {
       throw new Error(`'${season}' 탭 A1이 '${SEASON_TAB_HEADER[0]}'가 아닙니다. 기존 데이터 보호를 위해 중단합니다.`);
+    } else if (!String(head[9] ?? '').trim()) {
+      // 새로 생긴 열(J) 제목만 채움
+      await api.spreadsheets.values.update({
+        spreadsheetId: id, range: `${q(season)}!J1`, valueInputOption: 'RAW', requestBody: { values: [[SEASON_TAB_HEADER[9]]] },
+      });
     }
   }
 
   // 시즌 탭 현재 내용: { rows: Map(상품번호 → {sheetRow, values}), lastRow }
   async function readSeasonTab(season) {
-    const values = await read(`${q(season)}!A2:I`);
+    const values = await read(`${q(season)}!A2:J`);
     const rows = new Map();
     values.forEach((v, i) => {
       const g = String(v[0] ?? '').trim();
@@ -104,7 +109,7 @@ function createSheets() {
   // 시즌 탭 갱신: 기존 줄은 그 자리에서 덮어쓰고, 새 상품은 아래에 추가 (줄 순서 유지)
   async function writeSeasonRows(season, updates) {
     for (let i = 0; i < updates.length; i += 200) {
-      const data = updates.slice(i, i + 200).map((u) => ({ range: `${q(season)}!A${u.sheetRow}:I${u.sheetRow}`, values: [u.values] }));
+      const data = updates.slice(i, i + 200).map((u) => ({ range: `${q(season)}!A${u.sheetRow}:J${u.sheetRow}`, values: [u.values] }));
       await api.spreadsheets.values.batchUpdate({ spreadsheetId: id, requestBody: { valueInputOption: 'RAW', data } });
     }
   }
