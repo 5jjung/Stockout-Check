@@ -26,8 +26,10 @@ GitHub Actions에서 10분마다 돌기 때문에 컴퓨터가 꺼져 있어도 
 2. **Tampermonkey 스크립트**
    1. Tampermonkey 아이콘 → 새 스크립트 만들기
    2. [`chrome/codegraphy-stock-collector.user.js`](chrome/codegraphy-stock-collector.user.js) 내용을 전부 붙여넣기
-   3. 맨 위 `WEBAPP_URL`, `TOKEN` 에 1번에서 복사한 값 넣고 저장
+   3. 저장 후 Tampermonkey 메뉴 → **설정 입력 (웹앱 주소·토큰)** → 1번에서 복사한 값 입력
+   4. 스크립트는 GitHub에서 자동 업데이트됩니다 (설정은 유지됨)
 3. 사무실 PC 크롬에서 **무신사 탭 하나를 열어 둡니다.** 오른쪽 아래에 `품절수집 · …` 상태가 보이면 정상입니다.
+   바로 확인하려면 Tampermonkey 메뉴 → **지금 바로 수집**.
 
 > 토큰과 웹앱 URL은 저장소에 올리지 마세요 (Tampermonkey 안에만 저장).
 
