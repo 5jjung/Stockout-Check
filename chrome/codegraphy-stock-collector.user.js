@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         코드그라피 사이즈 품절 수집
 // @namespace    stockout-check
-// @version      1.5.0
+// @version      1.5.1
 // @description  무신사 탭이 열려 있는 동안 10분마다 감시 상품의 사이즈별 재고를 확인해 구글 시트에 적습니다.
 // @match        https://www.musinsa.com/*
 // @grant        GM_xmlhttpRequest
@@ -263,7 +263,7 @@
   let running = false;
   async function run(force = false) {
     if (running) return;
-    if (!cfg().url || !cfg().token) { show('설정 필요: Tampermonkey 메뉴 → 설정 입력'); return; }
+    if (!cfg().url || !cfg().token) { show('설정 필요 → 여기를 클릭해서 입력'); return; }
     if (!isLeader(force)) { show('다른 무신사 탭에서 수집 중 · 이 탭은 대기'); return; }
     running = true;
     discovering = null;
@@ -297,15 +297,21 @@
   }
 
   GM_registerMenuCommand('지금 바로 수집', () => run(true));
-  GM_registerMenuCommand('설정 입력 (웹앱 주소·토큰)', () => {
-    const url = prompt('Apps Script 웹 앱 URL (https://script.google.com/macros/s/…/exec)', cfg().url);
+  const askSettings = () => {
+    const url = prompt('Apps Script 웹 앱 URL (https://script.google.com/…/exec)', cfg().url);
     if (url === null) return;
-    const token = prompt('토큰 (Apps Script setup 실행 로그에 나온 값)', cfg().token);
+    const token = prompt('토큰 (Apps Script setup 실행 로그에 나온 32자리)', cfg().token);
     if (token === null) return;
     GM_setValue('webappUrl', url.trim());
     GM_setValue('token', token.trim());
     run(true);
-  });
+  };
+  GM_registerMenuCommand('설정 입력 (웹앱 주소·토큰)', askSettings);
+  // 메뉴가 안 보일 때를 위해: 오른쪽 아래 표시를 클릭해도 설정 입력
+  badge.style.pointerEvents = 'auto';
+  badge.style.cursor = 'pointer';
+  badge.title = '클릭하면 설정 입력 (웹앱 주소·토큰)';
+  badge.addEventListener('click', askSettings);
 
   // 1분마다 "할 차례인지" 확인 → 마지막 수집 후 INTERVAL_MIN 이 지났으면 수집
   //  (탭을 새로고침하거나 여러 개 열어도 늦어지지 않음)
